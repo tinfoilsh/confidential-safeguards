@@ -40,7 +40,7 @@ func Load() (*Config, error) {
 	if cfg.SafeguardTimeout, err = getEnvDuration("SAFEGUARD_TIMEOUT", 5*time.Minute); err != nil {
 		return nil, err
 	}
-	if cfg.MaxTranscriptBytes, err = getEnvInt("MAX_TRANSCRIPT_BYTES", 200_000); err != nil {
+	if cfg.MaxTranscriptBytes, err = getEnvInt("MAX_TRANSCRIPT_BYTES", 320_000); err != nil {
 		return nil, err
 	}
 	if cfg.MaxRequestBytes, err = getEnvInt64("MAX_REQUEST_BYTES", 4<<20); err != nil {
