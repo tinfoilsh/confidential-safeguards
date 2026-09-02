@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -57,8 +58,12 @@ func (s *Service) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	var req ingestRequest
 	err := dec.Decode(&req)
-	if err == nil && dec.More() {
-		err = errors.New("trailing data")
+	if err == nil {
+		if _, err = dec.Token(); err == io.EOF {
+			err = nil
+		} else if err == nil {
+			err = errors.New("trailing data")
+		}
 	}
 	if err != nil {
 		var tooLarge *http.MaxBytesError
@@ -73,7 +78,7 @@ func (s *Service) HandleIngest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "credential is required", http.StatusBadRequest)
 		return
 	}
-	conv, err := NewConversation(req.Credential, req.ConversationID, req.Messages)
+	conv, err := NewConversation(req.Credential, req.ConversationID, req.Messages, s.maxTranscriptBytes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -100,11 +105,11 @@ func (s *Service) RunWorker(ctx context.Context) {
 }
 
 func (s *Service) process(ctx context.Context, conv *Conversation) {
-	logger := log.WithField("turns", len(conv.Turns))
+	logger := log.WithField("turns", len(conv.Prefixes))
 
 	classifyCtx, cancel := context.WithTimeout(ctx, s.classifyTimeout)
 	defer cancel()
-	verdict, err := s.classifier.Classify(classifyCtx, conv.Transcript(s.maxTranscriptBytes))
+	verdict, err := s.classifier.Classify(classifyCtx, conv.Transcript)
 	if err != nil {
 		logger.WithError(err).Warn("classification failed; conversation dropped")
 		return

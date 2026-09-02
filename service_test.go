@@ -76,8 +76,13 @@ func TestHandleIngest_Validation(t *testing.T) {
 
 func TestHandleIngest_RejectsTrailingData(t *testing.T) {
 	svc := NewService(testConfig(), &stubClassifier{}, &stubNotifier{})
-	if rec := ingest(svc, `{"credential":"u1","messages":[`+turnOne+`]} {}`); rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
+	for _, trailing := range []string{" {}", "]", "}", " x"} {
+		if rec := ingest(svc, `{"credential":"u1","messages":[`+turnOne+`]}`+trailing); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%q: status = %d, want 400", trailing, rec.Code)
+		}
+	}
+	if svc.queue.Len() != 0 {
+		t.Fatal("malformed requests must not be queued")
 	}
 }
 
@@ -104,7 +109,7 @@ func TestHandleIngest_Queues(t *testing.T) {
 func TestProcess_ReportsViolation(t *testing.T) {
 	notifier := &stubNotifier{}
 	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true, Category: "cbrn"}}, notifier)
-	conv, err := NewConversation("cred-1", "chat-42", json.RawMessage("["+turnTwo+"]"))
+	conv, err := NewConversation("cred-1", "chat-42", json.RawMessage("["+turnTwo+"]"), testMaxTranscript)
 	if err != nil {
 		t.Fatal(err)
 	}

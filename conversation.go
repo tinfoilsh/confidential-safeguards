@@ -15,15 +15,17 @@ type Turn struct {
 	Content string
 }
 
-// Conversation is a chat history reduced to text. Prefixes[i] is a chain hash
-// covering Turns[:i+1], salted with the caller's credential and conversation
-// id, so a conversation at turn n+1 carries the hash of the same conversation
-// at turn n while distinct chats with identical openings stay separate.
+// Conversation is a chat history reduced to a bounded transcript. Prefixes[i]
+// is a chain hash covering the first i+1 messages, salted with the caller's
+// credential and conversation id, so a conversation at turn n+1 carries the
+// hash of the same conversation at turn n while distinct chats with identical
+// openings stay separate. Only the transcript is retained, so memory held per
+// queued conversation is bounded by maxTranscriptBytes.
 type Conversation struct {
 	Credential     string
 	ConversationID string
-	Turns          []Turn
 	Prefixes       []string
+	Transcript     string
 }
 
 func (c *Conversation) Hash() string {
@@ -40,7 +42,7 @@ type rawContentPart struct {
 	Text string `json:"text"`
 }
 
-func NewConversation(credential, conversationID string, messages json.RawMessage) (*Conversation, error) {
+func NewConversation(credential, conversationID string, messages json.RawMessage, maxTranscriptBytes int) (*Conversation, error) {
 	var raw []rawMessage
 	if err := json.Unmarshal(messages, &raw); err != nil {
 		return nil, fmt.Errorf("messages must be an array of chat messages")
@@ -50,6 +52,7 @@ func NewConversation(credential, conversationID string, messages json.RawMessage
 	}
 
 	conv := &Conversation{Credential: credential, ConversationID: conversationID}
+	turns := make([]Turn, 0, len(raw))
 	prev := sha256.Sum256([]byte(credential + "\x00" + conversationID))
 	for _, m := range raw {
 		if m.Role == "" {
@@ -59,7 +62,7 @@ func NewConversation(credential, conversationID string, messages json.RawMessage
 		if err != nil {
 			return nil, err
 		}
-		conv.Turns = append(conv.Turns, Turn{Role: m.Role, Content: content})
+		turns = append(turns, Turn{Role: m.Role, Content: content})
 
 		h := sha256.New()
 		h.Write(prev[:])
@@ -69,6 +72,7 @@ func NewConversation(credential, conversationID string, messages json.RawMessage
 		prev = [sha256.Size]byte(h.Sum(nil))
 		conv.Prefixes = append(conv.Prefixes, hex.EncodeToString(prev[:]))
 	}
+	conv.Transcript = renderTranscript(turns, maxTranscriptBytes)
 	return conv, nil
 }
 
@@ -103,14 +107,14 @@ func parseContent(raw json.RawMessage) (string, error) {
 
 const turnSeparator = "\n\n"
 
-// Transcript renders the conversation for the classifier. When the result
-// would exceed maxBytes the oldest turns are dropped first; the final turn is
-// always present, truncated from the front if it alone is too long.
-func (c *Conversation) Transcript(maxBytes int) string {
+// renderTranscript formats the turns for the classifier. When the result would
+// exceed maxBytes the oldest turns are dropped first; the final turn is always
+// present, truncated from the front if it alone is too long.
+func renderTranscript(turns []Turn, maxBytes int) string {
 	var lines []string
 	total := 0
-	for i := len(c.Turns) - 1; i >= 0; i-- {
-		line := fmt.Sprintf("[%s]\n%s", c.Turns[i].Role, c.Turns[i].Content)
+	for i := len(turns) - 1; i >= 0; i-- {
+		line := fmt.Sprintf("[%s]\n%s", turns[i].Role, turns[i].Content)
 		if len(lines) > 0 {
 			total += len(turnSeparator)
 		}

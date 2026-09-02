@@ -38,7 +38,7 @@ func (q *Queue) Push(conv *Conversation) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if el, ok := q.byPrefix[conv.Hash()]; ok && len(el.Value.(*queueEntry).conv.Turns) > len(conv.Turns) {
+	if el, ok := q.byPrefix[conv.Hash()]; ok && len(el.Value.(*queueEntry).conv.Prefixes) > len(conv.Prefixes) {
 		return
 	}
 	for _, prefix := range conv.Prefixes {
