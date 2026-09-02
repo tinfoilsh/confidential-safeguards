@@ -38,9 +38,10 @@ jobs:
 
       - name: Check if version tag already exists
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
-          if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${VERSION}" --silent 2>/dev/null; then
             echo "::error::Tag $VERSION already exists"
             exit 1
           fi
