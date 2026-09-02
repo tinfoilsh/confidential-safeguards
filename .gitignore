@@ -1,0 +1,6 @@
+.env
+.idea/
+confidential-safeguards
+tuf-repo-cdn.sigstore.dev.json
+.gocache/
+safeguards
