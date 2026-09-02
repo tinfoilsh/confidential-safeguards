@@ -32,7 +32,7 @@ flowchart LR
     ControlPlane -.->|"warning email (n/5)<br/>or ban at threshold"| Webapp
 ```
 
-The router forwards the user's own credential, so the control plane can verify who the user is (JWT signature or API key lookup) without trusting the sidecar. Message content and the violation category never leave the router enclave.
+The router forwards the user's own credential, so the control plane can verify who the user is (JWT signature or API key lookup) without trusting the sidecar. Message content is sent only to the attested guard-model enclave; the report to the control plane carries neither content nor the violation category.
 
 Inside the sidecar:
 
