@@ -86,7 +86,7 @@ The policy prompt and all tunables live in that config so they are audited along
 | `SAFEGUARD_POLICY`     | -                        | System prompt for the classifier                          |
 | `SAFEGUARD_MODEL`      | `gpt-oss-safeguard-120b` | Classifier model                                          |
 | `SAFEGUARD_TIMEOUT`    | `5m`                     | Per-classification timeout                                |
-| `MAX_TRANSCRIPT_BYTES` | `200000`                 | Transcript cap; oldest turns are dropped first            |
+| `MAX_TRANSCRIPT_BYTES` | `320000`                 | Transcript cap; oldest turns are dropped first. Sized so dense text (~3 bytes/token) stays near 80% of the model's 131k context |
 | `MAX_REQUEST_BYTES`    | `4194304`                | Maximum `/ingest` body size                               |
 | `QUEUE_TTL`            | `1h`                     | Conversations not classified within this time are dropped |
 | `QUEUE_MAX_SIZE`       | `10000`                  | Queue capacity                                            |
