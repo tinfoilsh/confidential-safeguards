@@ -11,6 +11,31 @@ Like the buckets sidecar, this service has no authentication of its own: it is o
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    Webapp["Webapp / API client"]
+
+    subgraph RouterEnclave["Model router enclave"]
+        Router["Model router"]
+        Sidecar["Safeguards sidecar"]
+    end
+
+    Guard["gpt-oss-safeguard-120b enclave"]
+    ControlPlane["Control plane"]
+    DB[("Postgres")]
+
+    Webapp -->|"chat completion<br/>bearer credential"| Router
+    Router -->|"POST /ingest<br/>{credential, conversation_id, messages}"| Sidecar
+    Sidecar -->|"classify transcript<br/>(attested via tinfoil-go)"| Guard
+    Sidecar -->|"on violation<br/>POST /api/internal/safeguards/violations<br/>{credential, conversation_id}"| ControlPlane
+    ControlPlane -->|"resolve credential to user<br/>record violation"| DB
+    ControlPlane -.->|"warning email (n/5)<br/>or ban at threshold"| Webapp
+```
+
+The router forwards the user's own credential, so the control plane can verify who the user is (JWT signature or API key lookup) without trusting the sidecar. Message content and the violation category never leave the router enclave.
+
+Inside the sidecar:
+
 ```text
 model router (same enclave)
   │  POST http://safeguards:8090/ingest {credential, conversation_id, messages}
