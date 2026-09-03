@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	controlPlaneSecretHeader  = "X-Tinfoil-Safeguards-Secret"
 	controlPlaneViolationPath = "/api/internal/safeguards/violations"
 	controlPlaneTimeout       = 10 * time.Second
 )
@@ -26,16 +25,17 @@ type Notifier interface {
 	ReportViolation(ctx context.Context, v Violation) error
 }
 
+// ControlPlane reports violations to the control plane. The request carries no
+// service credential of its own: the reported user credential is verified by
+// the control plane and is sufficient to authenticate the report.
 type ControlPlane struct {
 	endpoint string
-	secret   string
 	client   *http.Client
 }
 
-func NewControlPlane(baseURL, secret string) *ControlPlane {
+func NewControlPlane(baseURL string) *ControlPlane {
 	return &ControlPlane{
 		endpoint: strings.TrimRight(baseURL, "/") + controlPlaneViolationPath,
-		secret:   secret,
 		client:   &http.Client{Timeout: controlPlaneTimeout},
 	}
 }
@@ -50,7 +50,6 @@ func (c *ControlPlane) ReportViolation(ctx context.Context, v Violation) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(controlPlaneSecretHeader, c.secret)
 
 	resp, err := c.client.Do(req)
 	if err != nil {

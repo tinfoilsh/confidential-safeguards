@@ -97,7 +97,6 @@ containers:
           <policy prompt>
     secrets:
       - TINFOIL_API_KEY
-      - CONTROL_PLANE_SECRET
 ```
 
 The policy prompt and all tunables live in that config so they are audited alongside the image measurement.
@@ -107,7 +106,6 @@ The policy prompt and all tunables live in that config so they are audited along
 | Variable               | Default                  | Description                                               |
 | ---------------------- | ------------------------ | --------------------------------------------------------- |
 | `TINFOIL_API_KEY`      | -                        | API key for the safeguard model (secret)                  |
-| `CONTROL_PLANE_SECRET` | -                        | Shared secret presented to the control plane (secret)     |
 | `SAFEGUARD_POLICY`     | -                        | System prompt for the classifier                          |
 | `SAFEGUARD_MODEL`      | `gpt-oss-safeguard-120b` | Classifier model                                          |
 | `SAFEGUARD_TIMEOUT`    | `5m`                     | Per-classification timeout                                |
