@@ -42,7 +42,7 @@ func main() {
 
 	service := NewService(cfg,
 		NewSafeguardClassifier(client.Client, cfg.SafeguardModel, cfg.SafeguardPolicy),
-		NewControlPlane(cfg.ControlPlaneURL, cfg.ControlPlaneSecret),
+		NewControlPlane(cfg.ControlPlaneURL),
 	)
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())

@@ -22,18 +22,16 @@ type Config struct {
 	QueueMaxSize int
 	Workers      int
 
-	ControlPlaneURL    string
-	ControlPlaneSecret string
+	ControlPlaneURL string
 }
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:         getEnv("LISTEN_ADDR", ":8090"),
-		TinfoilAPIKey:      os.Getenv("TINFOIL_API_KEY"),
-		SafeguardModel:     getEnv("SAFEGUARD_MODEL", "gpt-oss-safeguard-120b"),
-		SafeguardPolicy:    os.Getenv("SAFEGUARD_POLICY"),
-		ControlPlaneURL:    getEnv("CONTROL_PLANE_URL", "https://api.tinfoil.sh"),
-		ControlPlaneSecret: os.Getenv("CONTROL_PLANE_SECRET"),
+		ListenAddr:      getEnv("LISTEN_ADDR", ":8090"),
+		TinfoilAPIKey:   os.Getenv("TINFOIL_API_KEY"),
+		SafeguardModel:  getEnv("SAFEGUARD_MODEL", "gpt-oss-safeguard-120b"),
+		SafeguardPolicy: os.Getenv("SAFEGUARD_POLICY"),
+		ControlPlaneURL: getEnv("CONTROL_PLANE_URL", "https://api.tinfoil.sh"),
 	}
 
 	var err error
@@ -57,9 +55,8 @@ func Load() (*Config, error) {
 	}
 
 	for name, value := range map[string]string{
-		"TINFOIL_API_KEY":      cfg.TinfoilAPIKey,
-		"SAFEGUARD_POLICY":     cfg.SafeguardPolicy,
-		"CONTROL_PLANE_SECRET": cfg.ControlPlaneSecret,
+		"TINFOIL_API_KEY":  cfg.TinfoilAPIKey,
+		"SAFEGUARD_POLICY": cfg.SafeguardPolicy,
 	} {
 		if value == "" {
 			return nil, fmt.Errorf("%s is required", name)

@@ -8,7 +8,6 @@ import (
 func setRequired(t *testing.T) {
 	t.Setenv("TINFOIL_API_KEY", "k")
 	t.Setenv("SAFEGUARD_POLICY", "p")
-	t.Setenv("CONTROL_PLANE_SECRET", "c")
 }
 
 func TestLoad_Defaults(t *testing.T) {
@@ -24,9 +23,9 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_RequiredSecrets(t *testing.T) {
 	setRequired(t)
-	t.Setenv("CONTROL_PLANE_SECRET", "")
+	t.Setenv("TINFOIL_API_KEY", "")
 	if _, err := Load(); err == nil {
-		t.Fatal("expected error for missing CONTROL_PLANE_SECRET")
+		t.Fatal("expected error for missing TINFOIL_API_KEY")
 	}
 }
 
