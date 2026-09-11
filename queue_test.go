@@ -69,6 +69,75 @@ func TestQueue_ExpiresAfterTTL(t *testing.T) {
 	}
 }
 
+func TestQueue_ExpiresExactlyAtTTLBoundary(t *testing.T) {
+	q := NewQueue(time.Hour, 100)
+	now := time.Now()
+	q.now = func() time.Time { return now }
+	q.Push(mustConversation(t, "u1", "["+turnOne+"]"))
+
+	now = now.Add(time.Hour) // exactly TTL: expires is not after now, so it drops
+	if q.Pop() != nil {
+		t.Fatal("conversation exactly at TTL should be dropped")
+	}
+}
+
+func TestQueue_PopSkipsExpiredAndReturnsFresh(t *testing.T) {
+	q := NewQueue(time.Hour, 100)
+	now := time.Now()
+	q.now = func() time.Time { return now }
+
+	q.Push(mustConversation(t, "u1", "["+turnOne+"]"))
+	q.Push(mustConversation(t, "u2", "["+turnOne+"]"))
+	now = now.Add(30 * time.Minute)
+	fresh := mustConversation(t, "u3", "["+turnOne+"]")
+	q.Push(fresh)
+
+	now = now.Add(45 * time.Minute) // first two expired, third has 15m left
+	if got := q.Pop(); got != fresh {
+		t.Fatalf("Pop should skip expired entries and return the fresh one, got %v", got)
+	}
+	if q.Len() != 0 {
+		t.Fatalf("expired entries should be removed while popping, len = %d", q.Len())
+	}
+	// the expired entries' prefixes must be forgotten so they can re-queue
+	q.Push(mustConversation(t, "u1", "["+turnOne+"]"))
+	if q.Len() != 1 || q.Pop() == nil {
+		t.Fatal("expired conversation should be re-queueable")
+	}
+}
+
+func TestQueue_ReplacementDoesNotEvictOthersWhenFull(t *testing.T) {
+	q := NewQueue(time.Hour, 2)
+	a := mustConversation(t, "u1", "["+turnOne+"]")
+	b := mustConversation(t, "u2", "["+turnOne+"]")
+	q.Push(a)
+	q.Push(b)
+
+	// extending a queued conversation at capacity replaces it in place
+	aTwo := mustConversation(t, "u1", "["+turnTwo+"]")
+	q.Push(aTwo)
+	if q.Len() != 2 {
+		t.Fatalf("len = %d, want 2", q.Len())
+	}
+	if q.Pop() != b || q.Pop() != aTwo {
+		t.Fatal("replacement at capacity must not evict an unrelated conversation")
+	}
+}
+
+func TestQueue_EvictionForgetsAllPrefixes(t *testing.T) {
+	q := NewQueue(time.Hour, 1)
+	multi := mustConversation(t, "u1", "["+turnTwo+"]") // 5 prefixes
+	q.Push(multi)
+	q.Push(mustConversation(t, "u2", "["+turnOne+"]")) // evicts multi
+
+	// an earlier turn of the evicted conversation must be acceptable again
+	q.Pop()
+	q.Push(mustConversation(t, "u1", "["+turnOne+"]"))
+	if q.Len() != 1 {
+		t.Fatal("eviction must forget every prefix of the evicted conversation")
+	}
+}
+
 func TestQueue_EvictsOldestWhenFull(t *testing.T) {
 	q := NewQueue(time.Hour, 2)
 	a := mustConversation(t, "u1", "["+turnOne+"]")

@@ -10,11 +10,13 @@ import (
 type Config struct {
 	ListenAddr string
 
-	TinfoilAPIKey      string
-	SafeguardModel     string
-	SafeguardPolicy    string
-	SafeguardTimeout   time.Duration
-	MaxTranscriptBytes int
+	TinfoilAPIKey          string
+	SafeguardModel         string
+	SafeguardReviewModel   string
+	SafeguardPolicy        string
+	SafeguardTimeout       time.Duration
+	SafeguardReviewTimeout time.Duration
+	MaxTranscriptBytes     int
 
 	MaxRequestBytes int64
 
@@ -27,15 +29,19 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:      getEnv("LISTEN_ADDR", ":8090"),
-		TinfoilAPIKey:   os.Getenv("TINFOIL_API_KEY"),
-		SafeguardModel:  getEnv("SAFEGUARD_MODEL", "gpt-oss-safeguard-120b"),
-		SafeguardPolicy: os.Getenv("SAFEGUARD_POLICY"),
-		ControlPlaneURL: getEnv("CONTROL_PLANE_URL", "https://api.tinfoil.sh"),
+		ListenAddr:           getEnv("LISTEN_ADDR", ":8090"),
+		TinfoilAPIKey:        os.Getenv("TINFOIL_API_KEY"),
+		SafeguardModel:       getEnv("SAFEGUARD_MODEL", "gpt-oss-safeguard-120b"),
+		SafeguardReviewModel: getEnv("SAFEGUARD_REVIEW_MODEL", "kimi-k3"),
+		SafeguardPolicy:      os.Getenv("SAFEGUARD_POLICY"),
+		ControlPlaneURL:      getEnv("CONTROL_PLANE_URL", "https://api.tinfoil.sh"),
 	}
 
 	var err error
 	if cfg.SafeguardTimeout, err = getEnvDuration("SAFEGUARD_TIMEOUT", 5*time.Minute); err != nil {
+		return nil, err
+	}
+	if cfg.SafeguardReviewTimeout, err = getEnvDuration("SAFEGUARD_REVIEW_TIMEOUT", 10*time.Minute); err != nil {
 		return nil, err
 	}
 	if cfg.MaxTranscriptBytes, err = getEnvInt("MAX_TRANSCRIPT_BYTES", 320_000); err != nil {
@@ -63,12 +69,13 @@ func Load() (*Config, error) {
 		}
 	}
 	for name, value := range map[string]int64{
-		"SAFEGUARD_TIMEOUT":    int64(cfg.SafeguardTimeout),
-		"MAX_TRANSCRIPT_BYTES": int64(cfg.MaxTranscriptBytes),
-		"MAX_REQUEST_BYTES":    cfg.MaxRequestBytes,
-		"QUEUE_TTL":            int64(cfg.QueueTTL),
-		"QUEUE_MAX_SIZE":       int64(cfg.QueueMaxSize),
-		"WORKERS":              int64(cfg.Workers),
+		"SAFEGUARD_TIMEOUT":        int64(cfg.SafeguardTimeout),
+		"SAFEGUARD_REVIEW_TIMEOUT": int64(cfg.SafeguardReviewTimeout),
+		"MAX_TRANSCRIPT_BYTES":     int64(cfg.MaxTranscriptBytes),
+		"MAX_REQUEST_BYTES":        cfg.MaxRequestBytes,
+		"QUEUE_TTL":                int64(cfg.QueueTTL),
+		"QUEUE_MAX_SIZE":           int64(cfg.QueueMaxSize),
+		"WORKERS":                  int64(cfg.Workers),
 	} {
 		if value <= 0 {
 			return nil, fmt.Errorf("%s must be positive", name)

@@ -1,6 +1,6 @@
 # Confidential Safeguards
 
-An Acceptable Use Policy monitor that runs as a sidecar container inside the model router's enclave. The router submits each completed conversation turn over the enclave's private network; the sidecar classifies it with `gpt-oss-safeguard-120b` and reports violations to the control plane, which warns and eventually bans the account.
+An Acceptable Use Policy monitor that runs as a sidecar container inside the model router's enclave. The router submits each completed conversation turn over the enclave's private network; the sidecar classifies it with `gpt-oss-safeguard-120b`, and every flag is second-guessed by a reviewer model (`kimi-k3`) that is shown the judge's verdict and the same policy. Confirmed violations are reported to the control plane (Tinfoil controlled), which warns and eventually bans the account.
 
 Surfaces:
 
@@ -21,18 +21,20 @@ flowchart LR
     end
 
     Guard["gpt-oss-safeguard-120b enclave"]
+    Reviewer["kimi-k3 enclave"]
     ControlPlane["Control plane"]
     DB[("Postgres")]
 
     Webapp -->|"chat completion<br/>bearer credential"| Router
     Router -->|"POST /ingest<br/>{credential, conversation_id, messages}"| Sidecar
     Sidecar -->|"classify transcript<br/>(attested via tinfoil-go)"| Guard
-    Sidecar -->|"on violation<br/>POST /api/internal/safeguards/violations<br/>{credential, conversation_id}"| ControlPlane
+    Sidecar -->|"on flag, review verdict<br/>(attested via tinfoil-go)"| Reviewer
+    Sidecar -->|"on confirmed violation<br/>POST /api/internal/safeguards/violations<br/>{credential, conversation_id}"| ControlPlane
     ControlPlane -->|"resolve credential to user<br/>record violation"| DB
     ControlPlane -.->|"warning email (n/5)<br/>or ban at threshold"| Webapp
 ```
 
-The router forwards the user's own credential, so the control plane can verify who the user is (JWT signature or API key lookup) without trusting the sidecar. Message content is sent only to the attested guard-model enclave; the report to the control plane carries neither content nor the violation category.
+The router forwards the user's own credential, so the control plane can verify who the user is (JWT signature or API key lookup) without trusting the sidecar. Message content is sent only to the attested model enclaves (both the first pass and second pass model); the report to the control plane carries neither content, nor the violation categories, nor either model's reasoning — only the binary fact that a violation occurred. The report body sent to the Tinfoil controlplane is defined by the two-field `Violation` struct in `controlplane.go` (credential, conversation id) and serialized directly from it, so nothing else can appear on the wire.
 
 Inside the sidecar:
 
@@ -48,15 +50,22 @@ model router (same enclave)
                            ▼  WORKERS
 ┌─────────────────────────────────────────────────────────────┐
 │ gpt-oss-safeguard-120b (attested via tinfoil-go)            │
-│  system: SAFEGUARD_POLICY   user: transcript                │
-│  → {"violation": bool, "category": ...}                     │
+│  prompt: SAFEGUARD_POLICY + user transcript                 │
+│  → {"violation": bool, "categories": [...], "reason": ...}  │
 └──────────────────────────┬──────────────────────────────────┘
                            ▼  violation
+┌─────────────────────────────────────────────────────────────┐
+│ kimi-k3 reviewer (attested via tinfoil-go)                  │
+│  prompt: review preamble (the judge's verdict)              │
+│          + SAFEGUARD_POLICY + user transcript               │
+│  → {"violation": bool, ...} — the reviewer's verdict wins   │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼  confirmed violation
      POST {CONTROL_PLANE_URL}/api/internal/safeguards/violations
      {credential, conversation_id}
 ```
 
-Conversations are held in memory only. Each turn is chain-hashed with the caller's credential and conversation id as salt, so the hash of a conversation at turn `n` is a prefix hash of the same conversation at turn `n+1`; the queue uses this to replace a stale entry with its newer turn. The sidecar keeps no other state: every flagged conversation is reported, and the control plane uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice. The credential (API key or inference JWT) is forwarded as-is; the control plane resolves it to a user. Neither message content nor the violation category leaves the enclave or is logged.
+Conversations are held in memory only. Each turn is chain-hashed with the caller's credential and conversation id as salt, so the hash of a conversation at turn `n` is a prefix hash of the same conversation at turn `n+1`; the queue uses this to replace a stale entry with its newer turn. The sidecar keeps no other state: every confirmed flag is reported, and the control plane uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice. The credential (API key or inference JWT) is forwarded as-is; the control plane resolves it to a user. Neither message content, nor the violation categories, nor the models' reasoning leaves the enclave or is logged.
 
 ## Ingest
 
@@ -103,26 +112,28 @@ The policy prompt and all tunables live in that config so they are audited along
 
 ## Configuration
 
-| Variable               | Default                  | Description                                               |
-| ---------------------- | ------------------------ | --------------------------------------------------------- |
-| `TINFOIL_API_KEY`      | -                        | API key for the safeguard model (secret)                  |
-| `SAFEGUARD_POLICY`     | -                        | System prompt for the classifier                          |
-| `SAFEGUARD_MODEL`      | `gpt-oss-safeguard-120b` | Classifier model                                          |
-| `SAFEGUARD_TIMEOUT`    | `5m`                     | Per-classification timeout                                |
-| `MAX_TRANSCRIPT_BYTES` | `320000`                 | Transcript cap; oldest turns are dropped first. Sized so dense text (~3 bytes/token) stays near 80% of the model's 131k context |
-| `MAX_REQUEST_BYTES`    | `4194304`                | Maximum `/ingest` body size                               |
-| `QUEUE_TTL`            | `1h`                     | Conversations not classified within this time are dropped |
-| `QUEUE_MAX_SIZE`       | `10000`                  | Queue capacity                                            |
-| `WORKERS`              | `4`                      | Concurrent classifications                                |
-| `CONTROL_PLANE_URL`    | `https://api.tinfoil.sh` | Control plane base URL                                    |
-| `LISTEN_ADDR`          | `:8090`                  | HTTP listen address                                       |
+| Variable                   | Default                  | Description                                                                                                                     |
+| -------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `TINFOIL_API_KEY`          | -                        | API key for the safeguard model (secret)                                                                                        |
+| `SAFEGUARD_POLICY`         | -                        | System prompt for the classifier                                                                                                |
+| `SAFEGUARD_MODEL`          | `gpt-oss-safeguard-120b` | Classifier model                                                                                                                |
+| `SAFEGUARD_REVIEW_MODEL`   | `kimi-k3`                | Reviewer model that second-guesses every flag; its verdict is final                                                             |
+| `SAFEGUARD_TIMEOUT`        | `5m`                     | Per-classification timeout (first pass)                                                                                         |
+| `SAFEGUARD_REVIEW_TIMEOUT` | `10m`                    | Per-review timeout (second pass; the reviewer reasons at length on hard cases)                                                  |
+| `MAX_TRANSCRIPT_BYTES`     | `320000`                 | Transcript cap; oldest turns are dropped first. Sized so dense text (~3 bytes/token) stays near 80% of the model's 131k context |
+| `MAX_REQUEST_BYTES`        | `4194304`                | Maximum `/ingest` body size                                                                                                     |
+| `QUEUE_TTL`                | `1h`                     | Conversations not classified within this time are dropped                                                                       |
+| `QUEUE_MAX_SIZE`           | `10000`                  | Queue capacity                                                                                                                  |
+| `WORKERS`                  | `4`                      | Concurrent classifications                                                                                                      |
+| `CONTROL_PLANE_URL`        | `https://api.tinfoil.sh` | Control plane base URL                                                                                                          |
+| `LISTEN_ADDR`              | `:8090`                  | HTTP listen address                                                                                                             |
 
 ## Development
 
 ```bash
 cp .env.example .env   # fill in secrets and SAFEGUARD_POLICY
 set -a; source .env; set +a
-go run . -v
+go run .
 go test -race ./...
 ```
 

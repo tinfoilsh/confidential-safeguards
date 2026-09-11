@@ -9,26 +9,7 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-const classifierTemperature = 0.0
-
-var violationCategories = []string{"none", "cbrn", "mass_violence", "child_endangerment", "self_harm", "csam"}
-
-// Verdict is the classifier's structured output. The category sharpens the
-// model's judgement but stays inside the enclave; only the boolean is acted on.
-type Verdict struct {
-	Violation bool   `json:"violation"`
-	Category  string `json:"category"`
-}
-
-var verdictSchema = map[string]any{
-	"type": "object",
-	"properties": map[string]any{
-		"violation": map[string]any{"type": "boolean"},
-		"category":  map[string]any{"type": "string", "enum": violationCategories},
-	},
-	"required":             []string{"violation", "category"},
-	"additionalProperties": false,
-}
+const classifyMaxTokens = 8192
 
 type Classifier interface {
 	Classify(ctx context.Context, transcript string) (*Verdict, error)
@@ -51,7 +32,8 @@ func (c *SafeguardClassifier) Classify(ctx context.Context, transcript string) (
 			openai.SystemMessage(c.policy),
 			openai.UserMessage(transcript),
 		},
-		Temperature: openai.Float(classifierTemperature),
+		Temperature: openai.Float(verdictTemperature),
+		MaxTokens:   openai.Int(classifyMaxTokens),
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
 				JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{

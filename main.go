@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,12 +23,6 @@ const (
 )
 
 func main() {
-	verbose := flag.Bool("v", false, "enable verbose logging")
-	flag.Parse()
-	if *verbose {
-		log.SetLevel(log.DebugLevel)
-	}
-
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
@@ -42,6 +35,7 @@ func main() {
 
 	service := NewService(cfg,
 		NewSafeguardClassifier(client.Client, cfg.SafeguardModel, cfg.SafeguardPolicy),
+		NewSafeguardReviewer(client.Client, cfg.SafeguardReviewModel, cfg.SafeguardPolicy),
 		NewControlPlane(cfg.ControlPlaneURL),
 	)
 

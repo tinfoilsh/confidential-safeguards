@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/tinfoilsh/confidential-safeguards/config"
 )
 
@@ -29,22 +27,26 @@ type ingestRequest struct {
 type Service struct {
 	queue      *Queue
 	classifier Classifier
+	reviewer   Reviewer
 	notifier   Notifier
 
 	maxRequestBytes    int64
 	maxTranscriptBytes int
 	classifyTimeout    time.Duration
+	reviewTimeout      time.Duration
 	reportRetryDelay   time.Duration
 }
 
-func NewService(cfg *config.Config, classifier Classifier, notifier Notifier) *Service {
+func NewService(cfg *config.Config, classifier Classifier, reviewer Reviewer, notifier Notifier) *Service {
 	return &Service{
 		queue:              NewQueue(cfg.QueueTTL, cfg.QueueMaxSize),
 		classifier:         classifier,
+		reviewer:           reviewer,
 		notifier:           notifier,
 		maxRequestBytes:    cfg.MaxRequestBytes,
 		maxTranscriptBytes: cfg.MaxTranscriptBytes,
 		classifyTimeout:    cfg.SafeguardTimeout,
+		reviewTimeout:      cfg.SafeguardReviewTimeout,
 		reportRetryDelay:   reportRetryDelay,
 	}
 }
@@ -80,7 +82,8 @@ func (s *Service) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	}
 	conv, err := NewConversation(req.Credential, req.ConversationID, req.Messages, s.maxTranscriptBytes)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		// Static message: never echo anything conversation-derived back out.
+		http.Error(w, "invalid messages", http.StatusBadRequest)
 		return
 	}
 
@@ -105,16 +108,23 @@ func (s *Service) RunWorker(ctx context.Context) {
 }
 
 func (s *Service) process(ctx context.Context, conv *Conversation) {
-	logger := log.WithField("turns", len(conv.Prefixes))
-
 	classifyCtx, cancel := context.WithTimeout(ctx, s.classifyTimeout)
 	defer cancel()
 	verdict, err := s.classifier.Classify(classifyCtx, conv.Transcript)
 	if err != nil {
-		logger.WithError(err).Warn("classification failed; conversation dropped")
 		return
 	}
 	if !verdict.Violation {
+		return
+	}
+
+	reviewCtx, cancelReview := context.WithTimeout(ctx, s.reviewTimeout)
+	defer cancelReview()
+	review, err := s.reviewer.Review(reviewCtx, conv.Transcript, verdict)
+	if err != nil {
+		return
+	}
+	if !review.Violation {
 		return
 	}
 
@@ -122,14 +132,11 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 	for attempt := 1; ; attempt++ {
 		err = s.notifier.ReportViolation(ctx, violation)
 		if err == nil {
-			logger.Warn("violation reported")
 			return
 		}
 		if attempt == reportAttempts || ctx.Err() != nil {
-			logger.WithError(err).Error("failed to report violation; giving up")
 			return
 		}
-		logger.WithError(err).Warn("failed to report violation; retrying")
 		select {
 		case <-ctx.Done():
 			return
