@@ -25,6 +25,26 @@ func (s *stubClassifier) Classify(context.Context, string) (*Verdict, error) {
 	return &s.verdict, nil
 }
 
+type stubReviewer struct {
+	verdict Verdict
+	err     error
+	calls   int
+	judged  []Verdict
+}
+
+func (s *stubReviewer) Review(_ context.Context, _ string, judge *Verdict) (*Verdict, error) {
+	s.calls++
+	s.judged = append(s.judged, *judge)
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &s.verdict, nil
+}
+
+func confirmingReviewer() *stubReviewer {
+	return &stubReviewer{verdict: Verdict{Violation: true}}
+}
+
 type stubNotifier struct {
 	reported []Violation
 	failures int
@@ -58,7 +78,7 @@ func ingest(svc *Service, body string) *httptest.ResponseRecorder {
 }
 
 func TestHandleIngest_Validation(t *testing.T) {
-	svc := NewService(testConfig(), &stubClassifier{}, &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
 	for name, body := range map[string]string{
 		"invalid json":    `{`,
 		"missing cred":    `{"messages":[` + turnOne + `]}`,
@@ -75,7 +95,7 @@ func TestHandleIngest_Validation(t *testing.T) {
 }
 
 func TestHandleIngest_RejectsTrailingData(t *testing.T) {
-	svc := NewService(testConfig(), &stubClassifier{}, &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
 	for _, trailing := range []string{" {}", "]", "}", " x"} {
 		if rec := ingest(svc, `{"credential":"u1","messages":[`+turnOne+`]}`+trailing); rec.Code != http.StatusBadRequest {
 			t.Fatalf("%q: status = %d, want 400", trailing, rec.Code)
@@ -89,14 +109,14 @@ func TestHandleIngest_RejectsTrailingData(t *testing.T) {
 func TestHandleIngest_TooLarge(t *testing.T) {
 	cfg := testConfig()
 	cfg.MaxRequestBytes = 64
-	svc := NewService(cfg, &stubClassifier{}, &stubNotifier{})
+	svc := NewService(cfg, &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
 	if rec := ingest(svc, `{"credential":"u1","messages":[`+turnTwo+`]}`); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413", rec.Code)
 	}
 }
 
 func TestHandleIngest_Queues(t *testing.T) {
-	svc := NewService(testConfig(), &stubClassifier{}, &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
 	if rec := ingest(svc, `{"credential":"u1","messages":[`+turnOne+`]}`); rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", rec.Code)
 	}
@@ -108,7 +128,7 @@ func TestHandleIngest_Queues(t *testing.T) {
 
 func TestProcess_ReportsViolation(t *testing.T) {
 	notifier := &stubNotifier{}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true, Category: "cbrn"}}, notifier)
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true, Categories: []string{"cbrn"}}}, confirmingReviewer(), notifier)
 	conv, err := NewConversation("cred-1", "chat-42", json.RawMessage("["+turnTwo+"]"), testMaxTranscript)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +143,7 @@ func TestProcess_ReportsViolation(t *testing.T) {
 
 func TestProcess_RetriesReportOnFailure(t *testing.T) {
 	notifier := &stubNotifier{failures: reportAttempts - 1}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, notifier)
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), notifier)
 	svc.reportRetryDelay = time.Millisecond
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
 	if len(notifier.reported) != 1 || notifier.calls != reportAttempts {
@@ -133,18 +153,55 @@ func TestProcess_RetriesReportOnFailure(t *testing.T) {
 
 func TestProcess_SafeConversationNotReported(t *testing.T) {
 	notifier := &stubNotifier{}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Category: "none"}}, notifier)
+	reviewer := confirmingReviewer()
+	svc := NewService(testConfig(), &stubClassifier{}, reviewer, notifier)
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
 	if len(notifier.reported) != 0 {
 		t.Fatal("safe conversations must not be reported")
+	}
+	if reviewer.calls != 0 {
+		t.Fatal("reviewer must not run on clean conversations")
 	}
 }
 
 func TestProcess_ClassifierErrorDropsConversation(t *testing.T) {
 	notifier := &stubNotifier{}
-	svc := NewService(testConfig(), &stubClassifier{err: errors.New("upstream down")}, notifier)
+	svc := NewService(testConfig(), &stubClassifier{err: errors.New("upstream down")}, confirmingReviewer(), notifier)
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
 	if len(notifier.reported) != 0 {
 		t.Fatal("failed classification must not be reported")
+	}
+}
+
+func TestProcess_ReviewerSeesJudgeVerdict(t *testing.T) {
+	judge := Verdict{Violation: true, Categories: []string{"self_harm"}, Reason: "encouraged self-harm"}
+	reviewer := confirmingReviewer()
+	svc := NewService(testConfig(), &stubClassifier{verdict: judge}, reviewer, &stubNotifier{})
+	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
+	if reviewer.calls != 1 {
+		t.Fatalf("reviewer calls = %d, want 1", reviewer.calls)
+	}
+	if got := reviewer.judged[0]; got.Reason != judge.Reason || len(got.Categories) != 1 || got.Categories[0] != "self_harm" {
+		t.Fatalf("reviewer saw %+v, want %+v", got, judge)
+	}
+}
+
+func TestProcess_ReviewerOverturnsFlag(t *testing.T) {
+	notifier := &stubNotifier{}
+	reviewer := &stubReviewer{verdict: Verdict{Violation: false}}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, notifier)
+	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
+	if len(notifier.reported) != 0 {
+		t.Fatal("overturned flags must not be reported")
+	}
+}
+
+func TestProcess_ReviewerErrorDropsConversation(t *testing.T) {
+	notifier := &stubNotifier{}
+	reviewer := &stubReviewer{err: errors.New("upstream down")}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, notifier)
+	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
+	if len(notifier.reported) != 0 {
+		t.Fatal("failed review must not be reported")
 	}
 }

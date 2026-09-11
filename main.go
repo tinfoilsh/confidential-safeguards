@@ -42,6 +42,7 @@ func main() {
 
 	service := NewService(cfg,
 		NewSafeguardClassifier(client.Client, cfg.SafeguardModel, cfg.SafeguardPolicy),
+		NewSafeguardReviewer(client.Client, cfg.SafeguardReviewModel, cfg.SafeguardPolicy),
 		NewControlPlane(cfg.ControlPlaneURL),
 	)
 

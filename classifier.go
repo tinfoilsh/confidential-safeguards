@@ -11,22 +11,29 @@ import (
 
 const classifierTemperature = 0.0
 
-var violationCategories = []string{"none", "cbrn", "mass_violence", "child_endangerment", "self_harm", "csam"}
+var violationCategories = []string{"cbrn", "mass_violence", "child_endangerment", "self_harm", "csam"}
 
-// Verdict is the classifier's structured output. The category sharpens the
-// model's judgement but stays inside the enclave; only the boolean is acted on.
+// Verdict is a classification outcome. The categories and reason sharpen the
+// model's judgement and are what the reviewer second-guesses, but they NEVER
+// leave the enclave: the report to the control plane (see Violation in
+// controlplane.go) carries only the fact that a violation occurred.
 type Verdict struct {
-	Violation bool   `json:"violation"`
-	Category  string `json:"category"`
+	Violation  bool     `json:"violation"`
+	Categories []string `json:"categories"`
+	Reason     string   `json:"reason"`
 }
 
 var verdictSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
 		"violation": map[string]any{"type": "boolean"},
-		"category":  map[string]any{"type": "string", "enum": violationCategories},
+		"categories": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string", "enum": violationCategories},
+		},
+		"reason": map[string]any{"type": "string"},
 	},
-	"required":             []string{"violation", "category"},
+	"required":             []string{"violation", "categories", "reason"},
 	"additionalProperties": false,
 }
 

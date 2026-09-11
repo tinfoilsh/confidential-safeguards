@@ -10,11 +10,12 @@ import (
 type Config struct {
 	ListenAddr string
 
-	TinfoilAPIKey      string
-	SafeguardModel     string
-	SafeguardPolicy    string
-	SafeguardTimeout   time.Duration
-	MaxTranscriptBytes int
+	TinfoilAPIKey        string
+	SafeguardModel       string
+	SafeguardReviewModel string
+	SafeguardPolicy      string
+	SafeguardTimeout     time.Duration
+	MaxTranscriptBytes   int
 
 	MaxRequestBytes int64
 
@@ -27,11 +28,12 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:      getEnv("LISTEN_ADDR", ":8090"),
-		TinfoilAPIKey:   os.Getenv("TINFOIL_API_KEY"),
-		SafeguardModel:  getEnv("SAFEGUARD_MODEL", "gpt-oss-safeguard-120b"),
-		SafeguardPolicy: os.Getenv("SAFEGUARD_POLICY"),
-		ControlPlaneURL: getEnv("CONTROL_PLANE_URL", "https://api.tinfoil.sh"),
+		ListenAddr:           getEnv("LISTEN_ADDR", ":8090"),
+		TinfoilAPIKey:        os.Getenv("TINFOIL_API_KEY"),
+		SafeguardModel:       getEnv("SAFEGUARD_MODEL", "gpt-oss-safeguard-120b"),
+		SafeguardReviewModel: getEnv("SAFEGUARD_REVIEW_MODEL", "kimi-k3"),
+		SafeguardPolicy:      os.Getenv("SAFEGUARD_POLICY"),
+		ControlPlaneURL:      getEnv("CONTROL_PLANE_URL", "https://api.tinfoil.sh"),
 	}
 
 	var err error

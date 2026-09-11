@@ -29,6 +29,7 @@ type ingestRequest struct {
 type Service struct {
 	queue      *Queue
 	classifier Classifier
+	reviewer   Reviewer
 	notifier   Notifier
 
 	maxRequestBytes    int64
@@ -37,10 +38,11 @@ type Service struct {
 	reportRetryDelay   time.Duration
 }
 
-func NewService(cfg *config.Config, classifier Classifier, notifier Notifier) *Service {
+func NewService(cfg *config.Config, classifier Classifier, reviewer Reviewer, notifier Notifier) *Service {
 	return &Service{
 		queue:              NewQueue(cfg.QueueTTL, cfg.QueueMaxSize),
 		classifier:         classifier,
+		reviewer:           reviewer,
 		notifier:           notifier,
 		maxRequestBytes:    cfg.MaxRequestBytes,
 		maxTranscriptBytes: cfg.MaxTranscriptBytes,
@@ -118,6 +120,20 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 		return
 	}
 
+	reviewCtx, cancelReview := context.WithTimeout(ctx, s.classifyTimeout)
+	defer cancelReview()
+	review, err := s.reviewer.Review(reviewCtx, conv.Transcript, verdict)
+	if err != nil {
+		logger.WithError(err).Warn("review failed; conversation dropped")
+		return
+	}
+	if !review.Violation {
+		logger.Info("classifier flag overturned by reviewer")
+		return
+	}
+
+	// The verdicts (categories, reason) are discarded here: the report that
+	// leaves the enclave carries only the fact that a violation occurred.
 	violation := Violation{Credential: conv.Credential, ConversationID: conv.ConversationID}
 	for attempt := 1; ; attempt++ {
 		err = s.notifier.ReportViolation(ctx, violation)
