@@ -26,7 +26,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client, err := tinfoil.NewClient(option.WithAPIKey(cfg.TinfoilAPIKey), option.WithMaxRetries(0))
+	client, err := tinfoil.NewClient(option.WithAPIKey(cfg.TinfoilAPIKey))
 	if err != nil {
 		log.Fatalf("Failed to create Tinfoil client: %v", err)
 	}
