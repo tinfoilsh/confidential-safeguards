@@ -65,7 +65,7 @@ model router (same enclave)
      {credential, conversation_id}
 ```
 
-Conversations are held in memory only. Each turn is chain-hashed with the caller's credential and conversation id as salt, so the hash of a conversation at turn `n` is a prefix hash of the same conversation at turn `n+1`; the queue uses this to replace a stale entry with its newer turn. The sidecar keeps no other state: every confirmed flag is reported, and the control plane uses `conversation_id` to avoid counting the same conversation twice. The credential (API key or inference JWT) is forwarded as-is; the control plane resolves it to a user. Neither message content, nor the violation categories, nor the models' reasoning leaves the enclave or is logged.
+Conversations are held in memory only. Each turn is chain-hashed with the caller's credential and conversation id as salt, so the hash of a conversation at turn `n` is a prefix hash of the same conversation at turn `n+1`; the queue uses this to replace a stale entry with its newer turn. The sidecar keeps no other state: every confirmed flag is reported, and the control plane uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice. The credential (API key or inference JWT) is forwarded as-is; the control plane resolves it to a user. Neither message content, nor the violation categories, nor the models' reasoning leaves the enclave or is logged.
 
 ## Ingest
 
@@ -132,7 +132,7 @@ The policy prompt and all tunables live in that config so they are audited along
 ```bash
 cp .env.example .env   # fill in secrets and SAFEGUARD_POLICY
 set -a; source .env; set +a
-go run . -v
+go run .
 go test -race ./...
 ```
 

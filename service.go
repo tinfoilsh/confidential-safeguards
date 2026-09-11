@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/tinfoilsh/confidential-safeguards/config"
 )
 
@@ -107,13 +105,10 @@ func (s *Service) RunWorker(ctx context.Context) {
 }
 
 func (s *Service) process(ctx context.Context, conv *Conversation) {
-	logger := log.WithField("turns", len(conv.Prefixes))
-
 	classifyCtx, cancel := context.WithTimeout(ctx, s.classifyTimeout)
 	defer cancel()
 	verdict, err := s.classifier.Classify(classifyCtx, conv.Transcript)
 	if err != nil {
-		logger.WithError(err).Warn("classification failed; conversation dropped")
 		return
 	}
 	if !verdict.Violation {
@@ -124,11 +119,9 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 	defer cancelReview()
 	review, err := s.reviewer.Review(reviewCtx, conv.Transcript, verdict)
 	if err != nil {
-		logger.WithError(err).Warn("review failed; conversation dropped")
 		return
 	}
 	if !review.Violation {
-		logger.Info("classifier flag overturned by reviewer")
 		return
 	}
 
@@ -136,14 +129,11 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 	for attempt := 1; ; attempt++ {
 		err = s.notifier.ReportViolation(ctx, violation)
 		if err == nil {
-			logger.Warn("violation reported")
 			return
 		}
 		if attempt == reportAttempts || ctx.Err() != nil {
-			logger.WithError(err).Error("failed to report violation; giving up")
 			return
 		}
-		logger.WithError(err).Warn("failed to report violation; retrying")
 		select {
 		case <-ctx.Done():
 			return
