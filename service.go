@@ -132,8 +132,6 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 		return
 	}
 
-	// The verdicts (categories, reason) are discarded here: the report that
-	// leaves the enclave carries only the fact that a violation occurred.
 	violation := Violation{Credential: conv.Credential, ConversationID: conv.ConversationID}
 	for attempt := 1; ; attempt++ {
 		err = s.notifier.ReportViolation(ctx, violation)

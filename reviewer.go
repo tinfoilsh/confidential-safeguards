@@ -1,3 +1,5 @@
+// The configuration, reviewMaxTokens, preamble, etc., is validated in the safeguards-eval repo (https://github.com/tinfoilsh/safeguard-evals)
+
 package main
 
 import (
@@ -11,13 +13,8 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-// reviewMaxTokens is the reviewer's output budget including inline reasoning,
-// mirroring the second-pass eval in safeguard-evals.
 const reviewMaxTokens = 16000
 
-// reviewPreamble mirrors monitor/hard_no.py in the safeguard-evals repo: the
-// reviewer is shown the judge's verdict as a claim to check, not a conclusion
-// to endorse, then given the exact policy the judge applied.
 const reviewPreamble = `You are a reviewer of a judge. The following conversation has been judged as harmful by an automated AUP monitor.
 
 The judge's verdict:
@@ -30,9 +27,7 @@ type Reviewer interface {
 	Review(ctx context.Context, transcript string, judge *Verdict) (*Verdict, error)
 }
 
-// SafeguardReviewer second-guesses the classifier's flags with a different
-// model before anything is reported. Like the classifier's, its verdict stays
-// inside the enclave.
+// Like the classifier's, SafeguardReviewer's verdict stays inside the enclave.
 type SafeguardReviewer struct {
 	client *openai.Client
 	model  string

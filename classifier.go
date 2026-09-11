@@ -14,9 +14,8 @@ const classifierTemperature = 0.0
 var violationCategories = []string{"cbrn", "mass_violence", "child_endangerment", "self_harm", "csam"}
 
 // Verdict is a classification outcome. The categories and reason sharpen the
-// model's judgement and are what the reviewer second-guesses, but they NEVER
-// leave the enclave: the report to the control plane (see Violation in
-// controlplane.go) carries only the fact that a violation occurred.
+// model's judgement and are what the reviewer second-guesses, but they don't
+// leave the system of enclaves.
 type Verdict struct {
 	Violation  bool     `json:"violation"`
 	Categories []string `json:"categories"`

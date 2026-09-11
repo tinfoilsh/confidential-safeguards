@@ -16,10 +16,6 @@ const (
 	controlPlaneTimeout       = 10 * time.Second
 )
 
-// Violation is the ONLY thing that leaves the enclave when a conversation is
-// flagged: who to attribute it to and which conversation, nothing else. The
-// model verdicts (categories, reason) and the transcript must never be added
-// here — the control plane learns only that a violation occurred.
 type Violation struct {
 	Credential     string `json:"credential"`
 	ConversationID string `json:"conversation_id,omitempty"`
