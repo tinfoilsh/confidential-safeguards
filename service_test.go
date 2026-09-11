@@ -148,7 +148,7 @@ func TestProcess_ReportsViolation(t *testing.T) {
 func TestProcess_RetriesReportOnFailure(t *testing.T) {
 	reporter := &stubReporter{failures: reportAttempts - 1}
 	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), reporter)
-	svc.reportRetryDelay = time.Millisecond
+	svc.sleep = func(context.Context, time.Duration) {}
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
 	if len(reporter.reported) != 1 || reporter.calls != reportAttempts {
 		t.Fatalf("reported = %d, calls = %d", len(reporter.reported), reporter.calls)
@@ -255,7 +255,7 @@ func TestProcess_ReviewerGetsFreshTimeout(t *testing.T) {
 func TestProcess_GivesUpAfterMaxReportAttempts(t *testing.T) {
 	reporter := &stubReporter{failures: reportAttempts + 5}
 	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), reporter)
-	svc.reportRetryDelay = time.Millisecond
+	svc.sleep = func(context.Context, time.Duration) {}
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
 	if reporter.calls != reportAttempts {
 		t.Fatalf("calls = %d, want exactly %d", reporter.calls, reportAttempts)
@@ -268,21 +268,11 @@ func TestProcess_GivesUpAfterMaxReportAttempts(t *testing.T) {
 func TestProcess_ReportRetryStopsOnCancelledContext(t *testing.T) {
 	reporter := &stubReporter{failures: reportAttempts + 5}
 	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), reporter)
-	svc.reportRetryDelay = time.Hour // would hang if cancellation were ignored
-
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	done := make(chan struct{})
-	go func() {
-		svc.process(ctx, mustConversation(t, "u1", "["+turnOne+"]"))
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("process must return promptly when the context is cancelled")
-	}
-	if len(reporter.reported) != 0 {
-		t.Fatal("cancelled report loop must not report")
+	svc.sleep = func(context.Context, time.Duration) { cancel() }
+
+	svc.process(ctx, mustConversation(t, "u1", "["+turnOne+"]"))
+	if reporter.calls != 1 {
+		t.Fatalf("calls = %d, want 1: the retry loop must stop once the context is cancelled", reporter.calls)
 	}
 }

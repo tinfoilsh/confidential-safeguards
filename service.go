@@ -47,7 +47,9 @@ type Service struct {
 	maxTranscriptBytes int
 	classifyTimeout    time.Duration
 	reviewTimeout      time.Duration
-	reportRetryDelay   time.Duration
+
+	// sleep waits for d or until ctx is done; tests swap it out.
+	sleep func(ctx context.Context, d time.Duration)
 }
 
 func NewService(cfg *Config, classifier Classifier, reviewer Reviewer, reporter Reporter) *Service {
@@ -60,7 +62,14 @@ func NewService(cfg *Config, classifier Classifier, reviewer Reviewer, reporter 
 		maxTranscriptBytes: cfg.MaxTranscriptBytes,
 		classifyTimeout:    cfg.SafeguardTimeout,
 		reviewTimeout:      cfg.SafeguardReviewTimeout,
-		reportRetryDelay:   reportRetryDelay,
+		sleep:              sleep,
+	}
+}
+
+func sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
 	}
 }
 
@@ -109,11 +118,7 @@ func (s *Service) RunWorker(ctx context.Context) {
 	for ctx.Err() == nil {
 		conv := s.queue.Pop()
 		if conv == nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(idlePollInterval):
-			}
+			s.sleep(ctx, idlePollInterval)
 			continue
 		}
 		s.process(ctx, conv)
@@ -143,17 +148,12 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 
 	violation := Violation{Credential: conv.Credential, ConversationID: conv.ConversationID}
 	for attempt := 1; ; attempt++ {
-		err = s.reporter.ReportViolation(ctx, violation)
-		if err == nil {
+		if err := s.reporter.ReportViolation(ctx, violation); err == nil || attempt == reportAttempts {
 			return
 		}
-		if attempt == reportAttempts || ctx.Err() != nil {
+		s.sleep(ctx, reportRetryDelay)
+		if ctx.Err() != nil {
 			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(s.reportRetryDelay):
 		}
 	}
 }
