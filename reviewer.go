@@ -39,9 +39,15 @@ func NewSafeguardReviewer(client *openai.Client, model, policy string) *Safeguar
 }
 
 func (r *SafeguardReviewer) Review(ctx context.Context, transcript string, judge *Verdict) (*Verdict, error) {
+	var listed []string
+	for _, c := range judge.Categories {
+		if c != "none" {
+			listed = append(listed, c)
+		}
+	}
 	categories := "(none listed)"
-	if len(judge.Categories) > 0 {
-		categories = strings.Join(judge.Categories, ", ")
+	if len(listed) > 0 {
+		categories = strings.Join(listed, ", ")
 	}
 	reason := judge.Reason
 	if reason == "" {
@@ -49,13 +55,14 @@ func (r *SafeguardReviewer) Review(ctx context.Context, transcript string, judge
 	}
 	system := fmt.Sprintf(reviewPreamble, categories, reason) + "\n\n" + r.policy
 
+	// Deliberately no structured-output response_format to match safeguards-eval
 	resp, err := r.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: r.model,
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(system),
 			openai.UserMessage("CONVERSATION:\n\n" + transcript),
 		},
-		Temperature: openai.Float(classifierTemperature),
+		Temperature: openai.Float(verdictTemperature),
 		MaxTokens:   openai.Int(reviewMaxTokens),
 	})
 	if err != nil {

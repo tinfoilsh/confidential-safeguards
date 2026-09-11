@@ -9,19 +9,6 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-const classifierTemperature = 0.0
-
-var violationCategories = []string{"cbrn", "mass_violence", "child_endangerment", "self_harm", "csam"}
-
-// Verdict is a classification outcome. The categories and reason sharpen the
-// model's judgement and are what the reviewer second-guesses, but they don't
-// leave the system of enclaves.
-type Verdict struct {
-	Violation  bool     `json:"violation"`
-	Categories []string `json:"categories"`
-	Reason     string   `json:"reason"`
-}
-
 var verdictSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
@@ -57,7 +44,7 @@ func (c *SafeguardClassifier) Classify(ctx context.Context, transcript string) (
 			openai.SystemMessage(c.policy),
 			openai.UserMessage(transcript),
 		},
-		Temperature: openai.Float(classifierTemperature),
+		Temperature: openai.Float(verdictTemperature),
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
 				JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
