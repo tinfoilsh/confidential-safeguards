@@ -36,23 +36,19 @@ flowchart LR
 
 The router forwards the user's own credential, so the control plane can verify who the user is (JWT signature or API key lookup) without trusting the sidecar. Message content is sent only to the attested model enclaves (both the first pass and second pass model); the report to the control plane carries neither content, nor the violation categories, nor either model's reasoning — only the binary fact that a violation occurred. The report body sent to the Tinfoil control plane is defined by the two-field `Violation` struct in `controlplane.go` (credential, conversation id) and serialized directly from it, so nothing else can appear on the wire.
 
-Inside the sidecar:
+### What happens to a conversation
 
-```mermaid
-flowchart TB
-    Router["Model router (same enclave)"]
-    Queue["Queue<br/>a conversation that extends a queued one replaces it<br/>entries expire after QUEUE_TTL, oldest evicted when full"]
-    Judge["gpt-oss-safeguard-120b (attested via tinfoil-go)<br/>prompt: SAFEGUARD_POLICY + transcript<br/>→ {violation, categories, reason}"]
-    Reviewer["kimi-k3 reviewer (attested via tinfoil-go)<br/>prompt: the judge's verdict + SAFEGUARD_POLICY + transcript<br/>→ {violation, ...} — the reviewer's verdict wins"]
-    ControlPlane["POST {CONTROL_PLANE_URL}/api/internal/safeguards/violations<br/>{credential, conversation_id}"]
+1. **Ingest.** After each completed turn, the router `POST`s the whole conversation so far to `/ingest` along with the user's credential and an optional `conversation_id`. The sidecar flattens the messages into a plain-text transcript, capped at `MAX_TRANSCRIPT_BYTES` (oldest turns dropped first), and answers `202` immediately. Nothing is classified on the request path.
 
-    Router -->|"POST /ingest<br/>{credential, conversation_id, messages}"| Queue
-    Queue -->|"WORKERS"| Judge
-    Judge -->|"violation"| Reviewer
-    Reviewer -->|"confirmed violation"| ControlPlane
-```
+2. **Queue.** The transcript waits in an in-memory queue. Because the router submits the conversation again after every turn, the queue would otherwise fill with stale copies of the same chat. To avoid that, each turn is chain-hashed (salted with the credential and `conversation_id`), so the hash of a conversation at turn `n` is a prefix of the same conversation at turn `n+1`. When a newer turn arrives it replaces the queued older one; an older turn arriving late is discarded. Entries expire after `QUEUE_TTL`, and when the queue is full the oldest entry is evicted.
 
-Conversations are held in memory only. Each turn is chain-hashed with the caller's credential and conversation id as salt, so the hash of a conversation at turn `n` is a prefix hash of the same conversation at turn `n+1`; the queue uses this to replace a stale entry with its newer turn. The sidecar keeps no other state: every confirmed flag is reported, and the control plane uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice. The credential (API key or inference JWT) is forwarded as-is; the control plane resolves it to a user. Neither message content, nor the violation categories, nor the models' reasoning leaves the enclave or is logged.
+3. **Classify.** `WORKERS` goroutines pull from the queue. Each transcript is sent to `SAFEGUARD_MODEL` (attested via tinfoil-go) with `SAFEGUARD_POLICY` as the system prompt. The model must answer in a strict JSON schema: `{"violation": bool, "categories": [...], "reason": "..."}`. If `violation` is false, the conversation is dropped and nothing further happens.
+
+4. **Review.** Every flag is second-guessed. The transcript goes to `SAFEGUARD_REVIEW_MODEL` (also attested) with a system prompt that states the judge's categories and reason, then the same policy, and asks it to independently decide whether the assistant actually crossed a line. It answers in the same schema, and its verdict is final: if it says no violation, the conversation is dropped.
+
+5. **Report.** A confirmed violation is `POST`ed to `{CONTROL_PLANE_URL}/api/internal/safeguards/violations` as `{credential, conversation_id}` — nothing else. The request is retried a few times on failure and then abandoned. The control plane resolves the credential to a user, records the violation, and uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice.
+
+The sidecar holds no state beyond the queue. If a model call fails or times out, the conversation is silently dropped; the router will submit it again on the next turn. Neither message content, nor the violation categories, nor the models' reasoning leaves the enclave or is logged.
 
 ## Ingest
 
