@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/tinfoilsh/confidential-safeguards/config"
 )
 
 type stubClassifier struct {
@@ -66,8 +64,8 @@ func (s *stubNotifier) ReportViolation(_ context.Context, v Violation) error {
 	return nil
 }
 
-func testConfig() *config.Config {
-	return &config.Config{
+func testConfig() *Config {
+	return &Config{
 		MaxRequestBytes:        1 << 20,
 		MaxTranscriptBytes:     1 << 20,
 		SafeguardTimeout:       time.Second,

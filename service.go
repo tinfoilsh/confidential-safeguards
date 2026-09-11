@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/tinfoilsh/confidential-safeguards/config"
 )
 
 const (
@@ -30,14 +28,14 @@ type Service struct {
 	reviewer   Reviewer
 	notifier   Notifier
 
-	maxRequestBytes    int64
+	maxRequestBytes    int
 	maxTranscriptBytes int
 	classifyTimeout    time.Duration
 	reviewTimeout      time.Duration
 	reportRetryDelay   time.Duration
 }
 
-func NewService(cfg *config.Config, classifier Classifier, reviewer Reviewer, notifier Notifier) *Service {
+func NewService(cfg *Config, classifier Classifier, reviewer Reviewer, notifier Notifier) *Service {
 	return &Service{
 		queue:              NewQueue(cfg.QueueTTL, cfg.QueueMaxSize),
 		classifier:         classifier,
@@ -56,7 +54,7 @@ func (s *Service) HandleIngest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, int64(s.maxRequestBytes))
 	dec := json.NewDecoder(r.Body)
 	var req ingestRequest
 	err := dec.Decode(&req)

@@ -12,8 +12,6 @@ import (
 	"github.com/openai/openai-go/v3/option"
 	log "github.com/sirupsen/logrus"
 	"github.com/tinfoilsh/tinfoil-go"
-
-	"github.com/tinfoilsh/confidential-safeguards/config"
 )
 
 const (
@@ -23,7 +21,7 @@ const (
 )
 
 func main() {
-	cfg, err := config.Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
