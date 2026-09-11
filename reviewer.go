@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/openai/openai-go/v3"
@@ -55,7 +54,6 @@ func (r *SafeguardReviewer) Review(ctx context.Context, transcript string, judge
 	}
 	system := fmt.Sprintf(reviewPreamble, categories, reason) + "\n\n" + r.policy
 
-	// Deliberately no structured-output response_format to match safeguards-eval
 	resp, err := r.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 		Model: r.model,
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -64,6 +62,15 @@ func (r *SafeguardReviewer) Review(ctx context.Context, transcript string, judge
 		},
 		Temperature: openai.Float(verdictTemperature),
 		MaxTokens:   openai.Int(reviewMaxTokens),
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+				JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
+					Name:   "verdict",
+					Schema: verdictSchema,
+					Strict: openai.Bool(true),
+				},
+			},
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("review call failed: %w", err)
@@ -71,20 +78,8 @@ func (r *SafeguardReviewer) Review(ctx context.Context, transcript string, judge
 	if len(resp.Choices) == 0 {
 		return nil, errors.New("reviewer returned no choices")
 	}
-	return parseVerdict(resp.Choices[0].Message.Content)
-}
-
-var verdictJSON = regexp.MustCompile(`(?s)\{.*\}`)
-
-// parseVerdict pulls the verdict JSON out of a reply leniently: the reviewer
-// model reasons inline, so the verdict may be surrounded by free text.
-func parseVerdict(text string) (*Verdict, error) {
-	match := verdictJSON.FindString(text)
-	if match == "" {
-		return nil, errors.New("no verdict JSON in reviewer reply")
-	}
 	var verdict Verdict
-	if err := json.Unmarshal([]byte(match), &verdict); err != nil {
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &verdict); err != nil {
 		return nil, fmt.Errorf("failed to parse reviewer verdict: %w", err)
 	}
 	return &verdict, nil

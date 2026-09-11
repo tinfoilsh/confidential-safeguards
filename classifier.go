@@ -9,20 +9,6 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-var verdictSchema = map[string]any{
-	"type": "object",
-	"properties": map[string]any{
-		"violation": map[string]any{"type": "boolean"},
-		"categories": map[string]any{
-			"type":  "array",
-			"items": map[string]any{"type": "string", "enum": violationCategories},
-		},
-		"reason": map[string]any{"type": "string"},
-	},
-	"required":             []string{"violation", "categories", "reason"},
-	"additionalProperties": false,
-}
-
 type Classifier interface {
 	Classify(ctx context.Context, transcript string) (*Verdict, error)
 }

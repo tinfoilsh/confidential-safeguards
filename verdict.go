@@ -16,3 +16,19 @@ type Verdict struct {
 	Categories []string `json:"categories"`
 	Reason     string   `json:"reason"`
 }
+
+// verdictSchema is the strict structured-output schema both passes are decoded
+// under.
+var verdictSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"violation": map[string]any{"type": "boolean"},
+		"categories": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string", "enum": violationCategories},
+		},
+		"reason": map[string]any{"type": "string"},
+	},
+	"required":             []string{"violation", "categories", "reason"},
+	"additionalProperties": false,
+}
