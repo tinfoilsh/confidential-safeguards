@@ -38,31 +38,18 @@ The router forwards the user's own credential, so the control plane can verify w
 
 Inside the sidecar:
 
-```text
-model router (same enclave)
-  │  POST http://safeguards:8090/ingest {credential, conversation_id, messages}
-  ▼
-┌─────────────────────────────────────────────────────────────┐
-│ queue                                                       │
-│  - a conversation that extends a queued one replaces it     │
-│  - entries expire after QUEUE_TTL, oldest evicted when full │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼  WORKERS
-┌─────────────────────────────────────────────────────────────┐
-│ gpt-oss-safeguard-120b (attested via tinfoil-go)            │
-│  prompt: SAFEGUARD_POLICY + user transcript                 │
-│  → {"violation": bool, "categories": [...], "reason": ...}  │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼  violation
-┌─────────────────────────────────────────────────────────────┐
-│ kimi-k3 reviewer (attested via tinfoil-go)                  │
-│  prompt: review preamble (the judge's verdict)              │
-│          + SAFEGUARD_POLICY + user transcript               │
-│  → {"violation": bool, ...} — the reviewer's verdict wins   │
-└──────────────────────────┬──────────────────────────────────┘
-                           ▼  confirmed violation
-     POST {CONTROL_PLANE_URL}/api/internal/safeguards/violations
-     {credential, conversation_id}
+```mermaid
+flowchart TB
+    Router["Model router (same enclave)"]
+    Queue["Queue<br/>a conversation that extends a queued one replaces it<br/>entries expire after QUEUE_TTL, oldest evicted when full"]
+    Judge["gpt-oss-safeguard-120b (attested via tinfoil-go)<br/>prompt: SAFEGUARD_POLICY + transcript<br/>→ {violation, categories, reason}"]
+    Reviewer["kimi-k3 reviewer (attested via tinfoil-go)<br/>prompt: the judge's verdict + SAFEGUARD_POLICY + transcript<br/>→ {violation, ...} — the reviewer's verdict wins"]
+    ControlPlane["POST {CONTROL_PLANE_URL}/api/internal/safeguards/violations<br/>{credential, conversation_id}"]
+
+    Router -->|"POST /ingest<br/>{credential, conversation_id, messages}"| Queue
+    Queue -->|"WORKERS"| Judge
+    Judge -->|"violation"| Reviewer
+    Reviewer -->|"confirmed violation"| ControlPlane
 ```
 
 Conversations are held in memory only. Each turn is chain-hashed with the caller's credential and conversation id as salt, so the hash of a conversation at turn `n` is a prefix hash of the same conversation at turn `n+1`; the queue uses this to replace a stale entry with its newer turn. The sidecar keeps no other state: every confirmed flag is reported, and the control plane uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice. The credential (API key or inference JWT) is forwarded as-is; the control plane resolves it to a user. Neither message content, nor the violation categories, nor the models' reasoning leaves the enclave or is logged.
