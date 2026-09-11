@@ -4,7 +4,7 @@ package main
 // two passes can be audited for consistency in one place.
 const verdictTemperature = 0.0
 
-// "none" is a no-op, the safeguard model sometimes emits it, included here for type completeness
+// "none" is a useful outlet for the second pass when there's no flag. Also the first pass gpt-oss is silly and likes to use this.
 var violationCategories = []string{"none", "cbrn", "mass_violence", "child_endangerment", "self_harm", "csam"}
 
 // Verdict is a classification outcome, produced by the classifier and again by
