@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,7 +12,6 @@ import (
 	"time"
 
 	"github.com/openai/openai-go/v3/option"
-	log "github.com/sirupsen/logrus"
 	"github.com/tinfoilsh/tinfoil-go"
 )
 
@@ -23,12 +24,12 @@ const (
 func main() {
 	cfg, err := LoadConfig()
 	if err != nil {
-		log.Fatal(err)
+		fatal("invalid configuration", err)
 	}
 
 	client, err := tinfoil.NewClient(option.WithAPIKey(cfg.TinfoilAPIKey))
 	if err != nil {
-		log.Fatalf("Failed to create Tinfoil client: %v", err)
+		fatal("failed to create Tinfoil client", err)
 	}
 
 	service := NewService(cfg,
@@ -61,17 +62,22 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Infof("Starting on %s (model: %s, workers: %d)", cfg.ListenAddr, cfg.SafeguardModel, cfg.Workers)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
+		slog.Info("starting", "addr", cfg.ListenAddr, "model", cfg.SafeguardModel, "review_model", cfg.SafeguardReviewModel, "workers", cfg.Workers)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fatal("server failed", err)
 		}
 	}()
 
 	<-sigChan
-	log.Info("Shutting down...")
+	slog.Info("shutting down")
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	server.Shutdown(ctx)
 	stopWorkers()
 	workers.Wait()
+}
+
+func fatal(msg string, err error) {
+	slog.Error(msg, "error", err)
+	os.Exit(1)
 }

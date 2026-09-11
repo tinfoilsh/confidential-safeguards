@@ -4,7 +4,6 @@ go 1.27.1
 
 require (
 	github.com/openai/openai-go/v3 v3.55.0
-	github.com/sirupsen/logrus v1.10.2
 	github.com/tinfoilsh/tinfoil-go v0.15.3
 )
 
@@ -60,6 +59,7 @@ require (
 	github.com/sigstore/sigstore v1.10.8 // indirect
 	github.com/sigstore/sigstore-go v1.2.2 // indirect
 	github.com/sigstore/timestamp-authority/v2 v2.1.3 // indirect
+	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/theupdateframework/go-tuf/v2 v2.4.2 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
