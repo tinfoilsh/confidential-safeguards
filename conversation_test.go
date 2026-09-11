@@ -59,6 +59,43 @@ func TestNewConversation_SaltedByCredentialAndConversation(t *testing.T) {
 	}
 }
 
+func TestNewConversation_HashFramesFields(t *testing.T) {
+	// Field boundaries must be encoded: shifting bytes between adjacent
+	// fields, or between the salt and the first message, must change the hash.
+	pairs := [][2]*Conversation{
+		{
+			mustConversation(t, "u1", `[{"role":"a","content":"b\u0000c"}]`),
+			mustConversation(t, "u1", `[{"role":"a\u0000b","content":"c"}]`),
+		},
+		{
+			mustConversation(t, "ab", `[{"role":"user","content":"x"}]`),
+			mustConversation(t, "a", `[{"role":"buser","content":"x"}]`),
+		},
+	}
+	for _, p := range pairs {
+		if p[0].Hash() == p[1].Hash() {
+			t.Fatalf("hash collision between %v and %v", p[0].Prefixes, p[1].Prefixes)
+		}
+	}
+}
+
+func TestTail(t *testing.T) {
+	for _, tc := range []struct {
+		s, want string
+		n       int
+	}{
+		{"hello", "hello", 5},
+		{"hello", "hello", 10},
+		{"hello", "llo", 3},
+		{"hello", "", 0},
+		{"éé", "é", 3},
+	} {
+		if got := tail(tc.s, tc.n); got != tc.want {
+			t.Errorf("tail(%q, %d) = %q, want %q", tc.s, tc.n, got, tc.want)
+		}
+	}
+}
+
 func TestContent_DecodesOpenAIForms(t *testing.T) {
 	for raw, want := range map[string]Content{
 		`null`:    "",

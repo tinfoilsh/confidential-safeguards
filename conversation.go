@@ -2,10 +2,12 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -77,21 +79,28 @@ func NewConversation(credential, conversationID string, messages []Message, maxT
 		return nil, errors.New("messages must not be empty")
 	}
 	conv := &Conversation{Credential: credential, ConversationID: conversationID}
-	prev := sha256.Sum256([]byte(credential + "\x00" + conversationID))
+	prev := chainHash([sha256.Size]byte{}, credential, conversationID)
 	for _, m := range messages {
 		if m.Role == "" {
 			return nil, errors.New("message role is required")
 		}
-		h := sha256.New()
-		h.Write(prev[:])
-		h.Write([]byte(m.Role))
-		h.Write([]byte{0})
-		h.Write([]byte(m.Content))
-		prev = [sha256.Size]byte(h.Sum(nil))
+		prev = chainHash(prev, m.Role, string(m.Content))
 		conv.Prefixes = append(conv.Prefixes, hex.EncodeToString(prev[:]))
 	}
 	conv.Transcript = renderTranscript(messages, maxTranscriptBytes)
 	return conv, nil
+}
+
+// chainHash extends prev with length-prefixed fields, so no two field
+// sequences share an encoding.
+func chainHash(prev [sha256.Size]byte, fields ...string) [sha256.Size]byte {
+	h := sha256.New()
+	h.Write(prev[:])
+	for _, f := range fields {
+		binary.Write(h, binary.BigEndian, uint64(len(f)))
+		h.Write([]byte(f))
+	}
+	return [sha256.Size]byte(h.Sum(nil))
 }
 
 const turnSeparator = "\n\n"
@@ -116,14 +125,15 @@ func renderTranscript(messages []Message, maxBytes int) string {
 		lines = append(lines, line)
 		total += len(line)
 	}
-	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
-		lines[i], lines[j] = lines[j], lines[i]
-	}
+	slices.Reverse(lines)
 	return strings.Join(lines, turnSeparator)
 }
 
 // tail returns at most n trailing bytes of s without splitting a UTF-8 sequence.
 func tail(s string, n int) string {
+	if n >= len(s) {
+		return s
+	}
 	start := len(s) - n
 	for start < len(s) && !utf8.RuneStart(s[start]) {
 		start++
