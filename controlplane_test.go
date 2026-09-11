@@ -27,6 +27,12 @@ func TestControlPlane_ReportViolation(t *testing.T) {
 	if got.Method != http.MethodPost || got.URL.Path != controlPlaneViolationPath {
 		t.Fatalf("unexpected request %s %s", got.Method, got.URL.Path)
 	}
+	if ct := got.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+	if got.Header.Get("Authorization") != "" {
+		t.Fatal("the report must not carry a service credential")
+	}
 	if body != want {
 		t.Fatalf("body = %+v, want %+v", body, want)
 	}
