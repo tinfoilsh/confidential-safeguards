@@ -112,20 +112,21 @@ The policy prompt and all tunables live in that config so they are audited along
 
 ## Configuration
 
-| Variable                 | Default                  | Description                                                                                                                     |
-| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `TINFOIL_API_KEY`        | -                        | API key for the safeguard model (secret)                                                                                        |
-| `SAFEGUARD_POLICY`       | -                        | System prompt for the classifier                                                                                                |
-| `SAFEGUARD_MODEL`        | `gpt-oss-safeguard-120b` | Classifier model                                                                                                                |
-| `SAFEGUARD_REVIEW_MODEL` | `kimi-k3`                | Reviewer model that second-guesses every flag; its verdict is final                                                             |
-| `SAFEGUARD_TIMEOUT`      | `5m`                     | Per-classification timeout                                                                                                      |
-| `MAX_TRANSCRIPT_BYTES`   | `320000`                 | Transcript cap; oldest turns are dropped first. Sized so dense text (~3 bytes/token) stays near 80% of the model's 131k context |
-| `MAX_REQUEST_BYTES`      | `4194304`                | Maximum `/ingest` body size                                                                                                     |
-| `QUEUE_TTL`              | `1h`                     | Conversations not classified within this time are dropped                                                                       |
-| `QUEUE_MAX_SIZE`         | `10000`                  | Queue capacity                                                                                                                  |
-| `WORKERS`                | `4`                      | Concurrent classifications                                                                                                      |
-| `CONTROL_PLANE_URL`      | `https://api.tinfoil.sh` | Control plane base URL                                                                                                          |
-| `LISTEN_ADDR`            | `:8090`                  | HTTP listen address                                                                                                             |
+| Variable                   | Default                  | Description                                                                                                                     |
+| -------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `TINFOIL_API_KEY`          | -                        | API key for the safeguard model (secret)                                                                                        |
+| `SAFEGUARD_POLICY`         | -                        | System prompt for the classifier                                                                                                |
+| `SAFEGUARD_MODEL`          | `gpt-oss-safeguard-120b` | Classifier model                                                                                                                |
+| `SAFEGUARD_REVIEW_MODEL`   | `kimi-k3`                | Reviewer model that second-guesses every flag; its verdict is final                                                             |
+| `SAFEGUARD_TIMEOUT`        | `5m`                     | Per-classification timeout (first pass)                                                                                         |
+| `SAFEGUARD_REVIEW_TIMEOUT` | `10m`                    | Per-review timeout (second pass; the reviewer reasons at length on hard cases)                                                  |
+| `MAX_TRANSCRIPT_BYTES`     | `320000`                 | Transcript cap; oldest turns are dropped first. Sized so dense text (~3 bytes/token) stays near 80% of the model's 131k context |
+| `MAX_REQUEST_BYTES`        | `4194304`                | Maximum `/ingest` body size                                                                                                     |
+| `QUEUE_TTL`                | `1h`                     | Conversations not classified within this time are dropped                                                                       |
+| `QUEUE_MAX_SIZE`           | `10000`                  | Queue capacity                                                                                                                  |
+| `WORKERS`                  | `4`                      | Concurrent classifications                                                                                                      |
+| `CONTROL_PLANE_URL`        | `https://api.tinfoil.sh` | Control plane base URL                                                                                                          |
+| `LISTEN_ADDR`              | `:8090`                  | HTTP listen address                                                                                                             |
 
 ## Development
 

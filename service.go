@@ -33,6 +33,7 @@ type Service struct {
 	maxRequestBytes    int64
 	maxTranscriptBytes int
 	classifyTimeout    time.Duration
+	reviewTimeout      time.Duration
 	reportRetryDelay   time.Duration
 }
 
@@ -45,6 +46,7 @@ func NewService(cfg *config.Config, classifier Classifier, reviewer Reviewer, no
 		maxRequestBytes:    cfg.MaxRequestBytes,
 		maxTranscriptBytes: cfg.MaxTranscriptBytes,
 		classifyTimeout:    cfg.SafeguardTimeout,
+		reviewTimeout:      cfg.SafeguardReviewTimeout,
 		reportRetryDelay:   reportRetryDelay,
 	}
 }
@@ -80,7 +82,8 @@ func (s *Service) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	}
 	conv, err := NewConversation(req.Credential, req.ConversationID, req.Messages, s.maxTranscriptBytes)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		// Static message: never echo anything conversation-derived back out.
+		http.Error(w, "invalid messages", http.StatusBadRequest)
 		return
 	}
 
@@ -115,7 +118,7 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 		return
 	}
 
-	reviewCtx, cancelReview := context.WithTimeout(ctx, s.classifyTimeout)
+	reviewCtx, cancelReview := context.WithTimeout(ctx, s.reviewTimeout)
 	defer cancelReview()
 	review, err := s.reviewer.Review(reviewCtx, conv.Transcript, verdict)
 	if err != nil {

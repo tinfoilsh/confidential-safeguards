@@ -16,9 +16,11 @@ import (
 type stubClassifier struct {
 	verdict Verdict
 	err     error
+	ctxs    []context.Context
 }
 
-func (s *stubClassifier) Classify(context.Context, string) (*Verdict, error) {
+func (s *stubClassifier) Classify(ctx context.Context, _ string) (*Verdict, error) {
+	s.ctxs = append(s.ctxs, ctx)
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -26,15 +28,19 @@ func (s *stubClassifier) Classify(context.Context, string) (*Verdict, error) {
 }
 
 type stubReviewer struct {
-	verdict Verdict
-	err     error
-	calls   int
-	judged  []Verdict
+	verdict     Verdict
+	err         error
+	calls       int
+	judged      []Verdict
+	transcripts []string
+	ctxs        []context.Context
 }
 
-func (s *stubReviewer) Review(_ context.Context, _ string, judge *Verdict) (*Verdict, error) {
+func (s *stubReviewer) Review(ctx context.Context, transcript string, judge *Verdict) (*Verdict, error) {
 	s.calls++
 	s.judged = append(s.judged, *judge)
+	s.transcripts = append(s.transcripts, transcript)
+	s.ctxs = append(s.ctxs, ctx)
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -62,11 +68,12 @@ func (s *stubNotifier) ReportViolation(_ context.Context, v Violation) error {
 
 func testConfig() *config.Config {
 	return &config.Config{
-		MaxRequestBytes:    1 << 20,
-		MaxTranscriptBytes: 1 << 20,
-		SafeguardTimeout:   time.Second,
-		QueueTTL:           time.Hour,
-		QueueMaxSize:       100,
+		MaxRequestBytes:        1 << 20,
+		MaxTranscriptBytes:     1 << 20,
+		SafeguardTimeout:       time.Second,
+		SafeguardReviewTimeout: time.Second,
+		QueueTTL:               time.Hour,
+		QueueMaxSize:           100,
 	}
 }
 
@@ -203,5 +210,82 @@ func TestProcess_ReviewerErrorDropsConversation(t *testing.T) {
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
 	if len(notifier.reported) != 0 {
 		t.Fatal("failed review must not be reported")
+	}
+}
+
+func TestProcess_ReviewerReceivesExactTranscript(t *testing.T) {
+	reviewer := confirmingReviewer()
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, &stubNotifier{})
+	conv := mustConversation(t, "u1", "["+turnTwo+"]")
+	svc.process(context.Background(), conv)
+	if len(reviewer.transcripts) != 1 || reviewer.transcripts[0] != conv.Transcript {
+		t.Fatalf("reviewer transcript = %q, want %q", reviewer.transcripts, conv.Transcript)
+	}
+}
+
+func TestProcess_ReviewerGetsFreshTimeout(t *testing.T) {
+	cfg := testConfig()
+	cfg.SafeguardTimeout = time.Minute
+	cfg.SafeguardReviewTimeout = 2 * time.Minute
+	classifier := &stubClassifier{verdict: Verdict{Violation: true}}
+	reviewer := confirmingReviewer()
+	svc := NewService(cfg, classifier, reviewer, &stubNotifier{})
+
+	start := time.Now()
+	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
+
+	classifyDeadline, ok := classifier.ctxs[0].Deadline()
+	if !ok {
+		t.Fatal("classifier context must carry a deadline")
+	}
+	reviewDeadline, ok := reviewer.ctxs[0].Deadline()
+	if !ok {
+		t.Fatal("reviewer context must carry a deadline")
+	}
+	for name, want := range map[string]struct {
+		deadline time.Time
+		timeout  time.Duration
+	}{
+		"classifier": {classifyDeadline, cfg.SafeguardTimeout},
+		"reviewer":   {reviewDeadline, cfg.SafeguardReviewTimeout},
+	} {
+		if d := want.deadline.Sub(start); d <= want.timeout-time.Second || d > want.timeout+time.Second {
+			t.Fatalf("%s deadline %v from start, want ~%v", name, d, want.timeout)
+		}
+	}
+}
+
+func TestProcess_GivesUpAfterMaxReportAttempts(t *testing.T) {
+	notifier := &stubNotifier{failures: reportAttempts + 5}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), notifier)
+	svc.reportRetryDelay = time.Millisecond
+	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
+	if notifier.calls != reportAttempts {
+		t.Fatalf("calls = %d, want exactly %d", notifier.calls, reportAttempts)
+	}
+	if len(notifier.reported) != 0 {
+		t.Fatal("nothing must be reported after exhausting attempts")
+	}
+}
+
+func TestProcess_ReportRetryStopsOnCancelledContext(t *testing.T) {
+	notifier := &stubNotifier{failures: reportAttempts + 5}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), notifier)
+	svc.reportRetryDelay = time.Hour // would hang if cancellation were ignored
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		svc.process(ctx, mustConversation(t, "u1", "["+turnOne+"]"))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("process must return promptly when the context is cancelled")
+	}
+	if len(notifier.reported) != 0 {
+		t.Fatal("cancelled report loop must not report")
 	}
 }

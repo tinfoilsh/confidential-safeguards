@@ -9,6 +9,8 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
+const classifyMaxTokens = 8192
+
 type Classifier interface {
 	Classify(ctx context.Context, transcript string) (*Verdict, error)
 }
@@ -31,6 +33,7 @@ func (c *SafeguardClassifier) Classify(ctx context.Context, transcript string) (
 			openai.UserMessage(transcript),
 		},
 		Temperature: openai.Float(verdictTemperature),
+		MaxTokens:   openai.Int(classifyMaxTokens),
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
 				JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
