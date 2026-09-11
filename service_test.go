@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -134,7 +133,7 @@ func TestHandleIngest_Queues(t *testing.T) {
 func TestProcess_ReportsViolation(t *testing.T) {
 	reporter := &stubReporter{}
 	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true, Categories: []string{"cbrn"}}}, confirmingReviewer(), reporter)
-	conv, err := NewConversation("cred-1", "chat-42", json.RawMessage("["+turnTwo+"]"), testMaxTranscript)
+	conv, err := NewConversation("cred-1", "chat-42", parseMessages(t, "["+turnTwo+"]"), testMaxTranscript)
 	if err != nil {
 		t.Fatal(err)
 	}

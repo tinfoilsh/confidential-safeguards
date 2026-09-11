@@ -9,19 +9,28 @@ import (
 
 const testMaxTranscript = 1 << 20
 
+const (
+	turnOne = `{"role":"system","content":"be helpful"},{"role":"user","content":"hello"},{"role":"assistant","content":"Hello, how can I help you?"}`
+	turnTwo = turnOne + `,{"role":"user","content":"what is 2+2?"},{"role":"assistant","content":"4"}`
+)
+
+func parseMessages(t *testing.T, messages string) []Message {
+	t.Helper()
+	var parsed []Message
+	if err := json.Unmarshal([]byte(messages), &parsed); err != nil {
+		t.Fatalf("parse messages: %v", err)
+	}
+	return parsed
+}
+
 func mustConversation(t *testing.T, credential string, messages string) *Conversation {
 	t.Helper()
-	conv, err := NewConversation(credential, "", json.RawMessage(messages), testMaxTranscript)
+	conv, err := NewConversation(credential, "", parseMessages(t, messages), testMaxTranscript)
 	if err != nil {
 		t.Fatalf("NewConversation: %v", err)
 	}
 	return conv
 }
-
-const (
-	turnOne = `{"role":"system","content":"be helpful"},{"role":"user","content":"hello"},{"role":"assistant","content":"Hello, how can I help you?"}`
-	turnTwo = turnOne + `,{"role":"user","content":"what is 2+2?"},{"role":"assistant","content":"4"}`
-)
 
 func TestNewConversation_PrefixChainExtends(t *testing.T) {
 	first := mustConversation(t, "u1", "["+turnOne+"]")
@@ -41,12 +50,34 @@ func TestNewConversation_PrefixChainExtends(t *testing.T) {
 func TestNewConversation_SaltedByCredentialAndConversation(t *testing.T) {
 	a := mustConversation(t, "u1", "["+turnOne+"]")
 	b := mustConversation(t, "u2", "["+turnOne+"]")
-	c, err := NewConversation("u1", "chat-2", json.RawMessage("["+turnOne+"]"), testMaxTranscript)
+	c, err := NewConversation("u1", "chat-2", parseMessages(t, "["+turnOne+"]"), testMaxTranscript)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.Hash() == b.Hash() || a.Hash() == c.Hash() {
 		t.Fatal("same content for different credentials or conversations must hash differently")
+	}
+}
+
+func TestContent_DecodesOpenAIForms(t *testing.T) {
+	for raw, want := range map[string]Content{
+		`null`:    "",
+		`"plain"`: "plain",
+		`[]`:      "",
+		`[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]`: "look\n[image_url]",
+	} {
+		var got Content
+		if err := json.Unmarshal([]byte(raw), &got); err != nil {
+			t.Errorf("%s: %v", raw, err)
+		} else if got != want {
+			t.Errorf("%s: content = %q, want %q", raw, got, want)
+		}
+	}
+	for _, raw := range []string{`42`, `true`, `{"text":"x"}`, `[1]`} {
+		var got Content
+		if err := json.Unmarshal([]byte(raw), &got); err == nil {
+			t.Errorf("%s: expected error, got %q", raw, got)
+		}
 	}
 }
 
@@ -58,13 +89,11 @@ func TestNewConversation_ContentParts(t *testing.T) {
 }
 
 func TestNewConversation_Rejects(t *testing.T) {
-	for name, body := range map[string]string{
-		"empty":        `[]`,
-		"not array":    `{"role":"user"}`,
-		"missing role": `[{"content":"x"}]`,
-		"bad content":  `[{"role":"user","content":42}]`,
+	for name, messages := range map[string][]Message{
+		"empty":        {},
+		"missing role": {{Content: "x"}},
 	} {
-		if _, err := NewConversation("u1", "", json.RawMessage(body), testMaxTranscript); err == nil {
+		if _, err := NewConversation("u1", "", messages, testMaxTranscript); err == nil {
 			t.Errorf("%s: expected error", name)
 		}
 	}
@@ -72,7 +101,7 @@ func TestNewConversation_Rejects(t *testing.T) {
 
 func transcript(t *testing.T, messages string, maxBytes int) string {
 	t.Helper()
-	conv, err := NewConversation("u1", "", json.RawMessage(messages), maxBytes)
+	conv, err := NewConversation("u1", "", parseMessages(t, messages), maxBytes)
 	if err != nil {
 		t.Fatal(err)
 	}

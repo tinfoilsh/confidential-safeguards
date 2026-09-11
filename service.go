@@ -17,9 +17,9 @@ const (
 )
 
 type ingestRequest struct {
-	Credential     string          `json:"credential"`
-	ConversationID string          `json:"conversation_id"`
-	Messages       json.RawMessage `json:"messages"`
+	Credential     string    `json:"credential"`
+	ConversationID string    `json:"conversation_id"`
+	Messages       []Message `json:"messages"`
 }
 
 // Classifier gives the first-pass verdict on a transcript.
