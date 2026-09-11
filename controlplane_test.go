@@ -19,7 +19,7 @@ func TestControlPlane_ReportViolation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cp := NewControlPlane(server.URL + "/")
+	cp := NewControlPlaneReporter(server.URL + "/")
 	want := Violation{Credential: "tk_abc", ConversationID: "chat-1"}
 	if err := cp.ReportViolation(context.Background(), want); err != nil {
 		t.Fatalf("ReportViolation: %v", err)
@@ -38,7 +38,7 @@ func TestControlPlane_RejectsNon200(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if err := NewControlPlane(server.URL).ReportViolation(context.Background(), Violation{}); err == nil {
+	if err := NewControlPlaneReporter(server.URL).ReportViolation(context.Background(), Violation{}); err == nil {
 		t.Fatal("expected error for non-200 response")
 	}
 }

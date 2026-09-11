@@ -11,10 +11,6 @@ import (
 
 const classifyMaxTokens = 8192
 
-type Classifier interface {
-	Classify(ctx context.Context, transcript string) (*Verdict, error)
-}
-
 type SafeguardClassifier struct {
 	client *openai.Client
 	model  string

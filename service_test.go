@@ -49,13 +49,13 @@ func confirmingReviewer() *stubReviewer {
 	return &stubReviewer{verdict: Verdict{Violation: true}}
 }
 
-type stubNotifier struct {
+type stubReporter struct {
 	reported []Violation
 	failures int
 	calls    int
 }
 
-func (s *stubNotifier) ReportViolation(_ context.Context, v Violation) error {
+func (s *stubReporter) ReportViolation(_ context.Context, v Violation) error {
 	s.calls++
 	if s.calls <= s.failures {
 		return errors.New("control plane unavailable")
@@ -83,7 +83,7 @@ func ingest(svc *Service, body string) *httptest.ResponseRecorder {
 }
 
 func TestHandleIngest_Validation(t *testing.T) {
-	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubReporter{})
 	for name, body := range map[string]string{
 		"invalid json":    `{`,
 		"missing cred":    `{"messages":[` + turnOne + `]}`,
@@ -100,7 +100,7 @@ func TestHandleIngest_Validation(t *testing.T) {
 }
 
 func TestHandleIngest_RejectsTrailingData(t *testing.T) {
-	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubReporter{})
 	for _, trailing := range []string{" {}", "]", "}", " x"} {
 		if rec := ingest(svc, `{"credential":"u1","messages":[`+turnOne+`]}`+trailing); rec.Code != http.StatusBadRequest {
 			t.Fatalf("%q: status = %d, want 400", trailing, rec.Code)
@@ -114,14 +114,14 @@ func TestHandleIngest_RejectsTrailingData(t *testing.T) {
 func TestHandleIngest_TooLarge(t *testing.T) {
 	cfg := testConfig()
 	cfg.MaxRequestBytes = 64
-	svc := NewService(cfg, &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
+	svc := NewService(cfg, &stubClassifier{}, confirmingReviewer(), &stubReporter{})
 	if rec := ingest(svc, `{"credential":"u1","messages":[`+turnTwo+`]}`); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413", rec.Code)
 	}
 }
 
 func TestHandleIngest_Queues(t *testing.T) {
-	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{}, confirmingReviewer(), &stubReporter{})
 	if rec := ingest(svc, `{"credential":"u1","messages":[`+turnOne+`]}`); rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202", rec.Code)
 	}
@@ -132,8 +132,8 @@ func TestHandleIngest_Queues(t *testing.T) {
 }
 
 func TestProcess_ReportsViolation(t *testing.T) {
-	notifier := &stubNotifier{}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true, Categories: []string{"cbrn"}}}, confirmingReviewer(), notifier)
+	reporter := &stubReporter{}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true, Categories: []string{"cbrn"}}}, confirmingReviewer(), reporter)
 	conv, err := NewConversation("cred-1", "chat-42", json.RawMessage("["+turnTwo+"]"), testMaxTranscript)
 	if err != nil {
 		t.Fatal(err)
@@ -141,27 +141,27 @@ func TestProcess_ReportsViolation(t *testing.T) {
 	svc.process(context.Background(), conv)
 
 	want := Violation{Credential: "cred-1", ConversationID: "chat-42"}
-	if len(notifier.reported) != 1 || notifier.reported[0] != want {
-		t.Fatalf("reported = %+v, want [%+v]", notifier.reported, want)
+	if len(reporter.reported) != 1 || reporter.reported[0] != want {
+		t.Fatalf("reported = %+v, want [%+v]", reporter.reported, want)
 	}
 }
 
 func TestProcess_RetriesReportOnFailure(t *testing.T) {
-	notifier := &stubNotifier{failures: reportAttempts - 1}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), notifier)
+	reporter := &stubReporter{failures: reportAttempts - 1}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), reporter)
 	svc.reportRetryDelay = time.Millisecond
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
-	if len(notifier.reported) != 1 || notifier.calls != reportAttempts {
-		t.Fatalf("reported = %d, calls = %d", len(notifier.reported), notifier.calls)
+	if len(reporter.reported) != 1 || reporter.calls != reportAttempts {
+		t.Fatalf("reported = %d, calls = %d", len(reporter.reported), reporter.calls)
 	}
 }
 
 func TestProcess_SafeConversationNotReported(t *testing.T) {
-	notifier := &stubNotifier{}
+	reporter := &stubReporter{}
 	reviewer := confirmingReviewer()
-	svc := NewService(testConfig(), &stubClassifier{}, reviewer, notifier)
+	svc := NewService(testConfig(), &stubClassifier{}, reviewer, reporter)
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
-	if len(notifier.reported) != 0 {
+	if len(reporter.reported) != 0 {
 		t.Fatal("safe conversations must not be reported")
 	}
 	if reviewer.calls != 0 {
@@ -170,10 +170,10 @@ func TestProcess_SafeConversationNotReported(t *testing.T) {
 }
 
 func TestProcess_ClassifierErrorDropsConversation(t *testing.T) {
-	notifier := &stubNotifier{}
-	svc := NewService(testConfig(), &stubClassifier{err: errors.New("upstream down")}, confirmingReviewer(), notifier)
+	reporter := &stubReporter{}
+	svc := NewService(testConfig(), &stubClassifier{err: errors.New("upstream down")}, confirmingReviewer(), reporter)
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
-	if len(notifier.reported) != 0 {
+	if len(reporter.reported) != 0 {
 		t.Fatal("failed classification must not be reported")
 	}
 }
@@ -181,7 +181,7 @@ func TestProcess_ClassifierErrorDropsConversation(t *testing.T) {
 func TestProcess_ReviewerSeesJudgeVerdict(t *testing.T) {
 	judge := Verdict{Violation: true, Categories: []string{"self_harm"}, Reason: "encouraged self-harm"}
 	reviewer := confirmingReviewer()
-	svc := NewService(testConfig(), &stubClassifier{verdict: judge}, reviewer, &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{verdict: judge}, reviewer, &stubReporter{})
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
 	if reviewer.calls != 1 {
 		t.Fatalf("reviewer calls = %d, want 1", reviewer.calls)
@@ -192,28 +192,28 @@ func TestProcess_ReviewerSeesJudgeVerdict(t *testing.T) {
 }
 
 func TestProcess_ReviewerOverturnsFlag(t *testing.T) {
-	notifier := &stubNotifier{}
+	reporter := &stubReporter{}
 	reviewer := &stubReviewer{verdict: Verdict{Violation: false}}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, notifier)
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, reporter)
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
-	if len(notifier.reported) != 0 {
+	if len(reporter.reported) != 0 {
 		t.Fatal("overturned flags must not be reported")
 	}
 }
 
 func TestProcess_ReviewerErrorDropsConversation(t *testing.T) {
-	notifier := &stubNotifier{}
+	reporter := &stubReporter{}
 	reviewer := &stubReviewer{err: errors.New("upstream down")}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, notifier)
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, reporter)
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
-	if len(notifier.reported) != 0 {
+	if len(reporter.reported) != 0 {
 		t.Fatal("failed review must not be reported")
 	}
 }
 
 func TestProcess_ReviewerReceivesExactTranscript(t *testing.T) {
 	reviewer := confirmingReviewer()
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, &stubNotifier{})
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, reviewer, &stubReporter{})
 	conv := mustConversation(t, "u1", "["+turnTwo+"]")
 	svc.process(context.Background(), conv)
 	if len(reviewer.transcripts) != 1 || reviewer.transcripts[0] != conv.Transcript {
@@ -227,7 +227,7 @@ func TestProcess_ReviewerGetsFreshTimeout(t *testing.T) {
 	cfg.SafeguardReviewTimeout = 2 * time.Minute
 	classifier := &stubClassifier{verdict: Verdict{Violation: true}}
 	reviewer := confirmingReviewer()
-	svc := NewService(cfg, classifier, reviewer, &stubNotifier{})
+	svc := NewService(cfg, classifier, reviewer, &stubReporter{})
 
 	start := time.Now()
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
@@ -254,21 +254,21 @@ func TestProcess_ReviewerGetsFreshTimeout(t *testing.T) {
 }
 
 func TestProcess_GivesUpAfterMaxReportAttempts(t *testing.T) {
-	notifier := &stubNotifier{failures: reportAttempts + 5}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), notifier)
+	reporter := &stubReporter{failures: reportAttempts + 5}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), reporter)
 	svc.reportRetryDelay = time.Millisecond
 	svc.process(context.Background(), mustConversation(t, "u1", "["+turnOne+"]"))
-	if notifier.calls != reportAttempts {
-		t.Fatalf("calls = %d, want exactly %d", notifier.calls, reportAttempts)
+	if reporter.calls != reportAttempts {
+		t.Fatalf("calls = %d, want exactly %d", reporter.calls, reportAttempts)
 	}
-	if len(notifier.reported) != 0 {
+	if len(reporter.reported) != 0 {
 		t.Fatal("nothing must be reported after exhausting attempts")
 	}
 }
 
 func TestProcess_ReportRetryStopsOnCancelledContext(t *testing.T) {
-	notifier := &stubNotifier{failures: reportAttempts + 5}
-	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), notifier)
+	reporter := &stubReporter{failures: reportAttempts + 5}
+	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true}}, confirmingReviewer(), reporter)
 	svc.reportRetryDelay = time.Hour // would hang if cancellation were ignored
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -283,7 +283,7 @@ func TestProcess_ReportRetryStopsOnCancelledContext(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("process must return promptly when the context is cancelled")
 	}
-	if len(notifier.reported) != 0 {
+	if len(reporter.reported) != 0 {
 		t.Fatal("cancelled report loop must not report")
 	}
 }

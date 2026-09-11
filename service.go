@@ -22,11 +22,26 @@ type ingestRequest struct {
 	Messages       json.RawMessage `json:"messages"`
 }
 
+// Classifier gives the first-pass verdict on a transcript.
+type Classifier interface {
+	Classify(ctx context.Context, transcript string) (*Verdict, error)
+}
+
+// Reviewer second-guesses a flag from the Classifier; its verdict is final.
+type Reviewer interface {
+	Review(ctx context.Context, transcript string, judge *Verdict) (*Verdict, error)
+}
+
+// Reporter delivers a confirmed violation outside the enclave.
+type Reporter interface {
+	ReportViolation(ctx context.Context, v Violation) error
+}
+
 type Service struct {
 	queue      *Queue
 	classifier Classifier
 	reviewer   Reviewer
-	notifier   Notifier
+	reporter   Reporter
 
 	maxRequestBytes    int
 	maxTranscriptBytes int
@@ -35,12 +50,12 @@ type Service struct {
 	reportRetryDelay   time.Duration
 }
 
-func NewService(cfg *Config, classifier Classifier, reviewer Reviewer, notifier Notifier) *Service {
+func NewService(cfg *Config, classifier Classifier, reviewer Reviewer, reporter Reporter) *Service {
 	return &Service{
 		queue:              NewQueue(cfg.QueueTTL, cfg.QueueMaxSize),
 		classifier:         classifier,
 		reviewer:           reviewer,
-		notifier:           notifier,
+		reporter:           reporter,
 		maxRequestBytes:    cfg.MaxRequestBytes,
 		maxTranscriptBytes: cfg.MaxTranscriptBytes,
 		classifyTimeout:    cfg.SafeguardTimeout,
@@ -128,7 +143,7 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 
 	violation := Violation{Credential: conv.Credential, ConversationID: conv.ConversationID}
 	for attempt := 1; ; attempt++ {
-		err = s.notifier.ReportViolation(ctx, violation)
+		err = s.reporter.ReportViolation(ctx, violation)
 		if err == nil {
 			return
 		}

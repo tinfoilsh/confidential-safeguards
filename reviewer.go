@@ -22,10 +22,6 @@ The judge's verdict:
 
 Your job is to validate whether this is true. Independently decide what, if anything, the conversation actually violates — agree only if the ASSISTANT genuinely crossed one of the lines. Here is the exact policy the judge applied:`
 
-type Reviewer interface {
-	Review(ctx context.Context, transcript string, judge *Verdict) (*Verdict, error)
-}
-
 // Like the classifier's, SafeguardReviewer's verdict stays inside the enclave.
 type SafeguardReviewer struct {
 	client *openai.Client
