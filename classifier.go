@@ -2,18 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 
 	"github.com/openai/openai-go/v3"
 )
 
 const classifyMaxTokens = 8192
-
-type Classifier interface {
-	Classify(ctx context.Context, transcript string) (*Verdict, error)
-}
 
 type SafeguardClassifier struct {
 	client *openai.Client
@@ -26,33 +19,5 @@ func NewSafeguardClassifier(client *openai.Client, model, policy string) *Safegu
 }
 
 func (c *SafeguardClassifier) Classify(ctx context.Context, transcript string) (*Verdict, error) {
-	resp, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model: c.model,
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.SystemMessage(c.policy),
-			openai.UserMessage(transcript),
-		},
-		Temperature: openai.Float(verdictTemperature),
-		MaxTokens:   openai.Int(classifyMaxTokens),
-		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
-			OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
-				JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
-					Name:   "verdict",
-					Schema: verdictSchema,
-					Strict: openai.Bool(true),
-				},
-			},
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("safeguard call failed: %w", err)
-	}
-	if len(resp.Choices) == 0 {
-		return nil, errors.New("safeguard returned no choices")
-	}
-	var verdict Verdict
-	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &verdict); err != nil {
-		return nil, fmt.Errorf("failed to parse safeguard response: %w", err)
-	}
-	return &verdict, nil
+	return requestVerdict(ctx, c.client, c.model, classifyMaxTokens, c.policy, transcript)
 }

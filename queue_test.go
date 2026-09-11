@@ -54,22 +54,7 @@ func TestQueue_StaleTurnArrivingLateIsDiscarded(t *testing.T) {
 	}
 }
 
-func TestQueue_ExpiresAfterTTL(t *testing.T) {
-	q := NewQueue(time.Hour, 100)
-	now := time.Now()
-	q.now = func() time.Time { return now }
-	q.Push(mustConversation(t, "u1", "["+turnOne+"]"))
-
-	now = now.Add(time.Hour)
-	if q.Pop() != nil {
-		t.Fatal("expired conversation should be dropped")
-	}
-	if q.Len() != 0 {
-		t.Fatal("expired conversation should be removed")
-	}
-}
-
-func TestQueue_ExpiresExactlyAtTTLBoundary(t *testing.T) {
+func TestQueue_ExpiresAtTTL(t *testing.T) {
 	q := NewQueue(time.Hour, 100)
 	now := time.Now()
 	q.now = func() time.Time { return now }
@@ -77,7 +62,10 @@ func TestQueue_ExpiresExactlyAtTTLBoundary(t *testing.T) {
 
 	now = now.Add(time.Hour) // exactly TTL: expires is not after now, so it drops
 	if q.Pop() != nil {
-		t.Fatal("conversation exactly at TTL should be dropped")
+		t.Fatal("conversation at TTL should be dropped")
+	}
+	if q.Len() != 0 {
+		t.Fatal("expired conversation should be removed")
 	}
 }
 

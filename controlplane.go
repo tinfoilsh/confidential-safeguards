@@ -21,26 +21,22 @@ type Violation struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 }
 
-type Notifier interface {
-	ReportViolation(ctx context.Context, v Violation) error
-}
-
-// ControlPlane reports violations to the control plane. The request carries no
-// service credential of its own: the reported user credential is verified by
-// the control plane and is sufficient to authenticate the report.
-type ControlPlane struct {
+// ControlPlaneReporter reports violations to the control plane. The request
+// carries no service credential of its own: the reported user credential is
+// verified by the control plane and is sufficient to authenticate the report.
+type ControlPlaneReporter struct {
 	endpoint string
 	client   *http.Client
 }
 
-func NewControlPlane(baseURL string) *ControlPlane {
-	return &ControlPlane{
+func NewControlPlaneReporter(baseURL string) *ControlPlaneReporter {
+	return &ControlPlaneReporter{
 		endpoint: strings.TrimRight(baseURL, "/") + controlPlaneViolationPath,
 		client:   &http.Client{Timeout: controlPlaneTimeout},
 	}
 }
 
-func (c *ControlPlane) ReportViolation(ctx context.Context, v Violation) error {
+func (c *ControlPlaneReporter) ReportViolation(ctx context.Context, v Violation) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return err

@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/tinfoilsh/confidential-safeguards/config"
 )
 
 const (
@@ -19,35 +17,59 @@ const (
 )
 
 type ingestRequest struct {
-	Credential     string          `json:"credential"`
-	ConversationID string          `json:"conversation_id"`
-	Messages       json.RawMessage `json:"messages"`
+	Credential     string    `json:"credential"`
+	ConversationID string    `json:"conversation_id"`
+	Messages       []Message `json:"messages"`
+}
+
+// Classifier gives the first-pass verdict on a transcript.
+type Classifier interface {
+	Classify(ctx context.Context, transcript string) (*Verdict, error)
+}
+
+// Reviewer second-guesses a flag from the Classifier; its verdict is final.
+type Reviewer interface {
+	Review(ctx context.Context, transcript string, judge *Verdict) (*Verdict, error)
+}
+
+// Reporter delivers a confirmed violation outside the enclave.
+type Reporter interface {
+	ReportViolation(ctx context.Context, v Violation) error
 }
 
 type Service struct {
 	queue      *Queue
 	classifier Classifier
 	reviewer   Reviewer
-	notifier   Notifier
+	reporter   Reporter
 
-	maxRequestBytes    int64
+	maxRequestBytes    int
 	maxTranscriptBytes int
 	classifyTimeout    time.Duration
 	reviewTimeout      time.Duration
-	reportRetryDelay   time.Duration
+
+	// sleep waits for d or until ctx is done; tests swap it out.
+	sleep func(ctx context.Context, d time.Duration)
 }
 
-func NewService(cfg *config.Config, classifier Classifier, reviewer Reviewer, notifier Notifier) *Service {
+func NewService(cfg *Config, classifier Classifier, reviewer Reviewer, reporter Reporter) *Service {
 	return &Service{
 		queue:              NewQueue(cfg.QueueTTL, cfg.QueueMaxSize),
 		classifier:         classifier,
 		reviewer:           reviewer,
-		notifier:           notifier,
+		reporter:           reporter,
 		maxRequestBytes:    cfg.MaxRequestBytes,
 		maxTranscriptBytes: cfg.MaxTranscriptBytes,
 		classifyTimeout:    cfg.SafeguardTimeout,
 		reviewTimeout:      cfg.SafeguardReviewTimeout,
-		reportRetryDelay:   reportRetryDelay,
+		sleep:              sleep,
+	}
+}
+
+func sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
 	}
 }
 
@@ -56,7 +78,7 @@ func (s *Service) HandleIngest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, int64(s.maxRequestBytes))
 	dec := json.NewDecoder(r.Body)
 	var req ingestRequest
 	err := dec.Decode(&req)
@@ -96,11 +118,7 @@ func (s *Service) RunWorker(ctx context.Context) {
 	for ctx.Err() == nil {
 		conv := s.queue.Pop()
 		if conv == nil {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(idlePollInterval):
-			}
+			s.sleep(ctx, idlePollInterval)
 			continue
 		}
 		s.process(ctx, conv)
@@ -130,17 +148,12 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 
 	violation := Violation{Credential: conv.Credential, ConversationID: conv.ConversationID}
 	for attempt := 1; ; attempt++ {
-		err = s.notifier.ReportViolation(ctx, violation)
-		if err == nil {
+		if err := s.reporter.ReportViolation(ctx, violation); err == nil || attempt == reportAttempts {
 			return
 		}
-		if attempt == reportAttempts || ctx.Err() != nil {
+		s.sleep(ctx, reportRetryDelay)
+		if ctx.Err() != nil {
 			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(s.reportRetryDelay):
 		}
 	}
 }
