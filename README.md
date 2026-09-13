@@ -31,7 +31,7 @@ flowchart LR
     Sidecar -->|"on flag, review verdict<br/>(attested via tinfoil-go)"| Reviewer
     Sidecar -->|"on confirmed violation<br/>POST /api/internal/safeguards/violations<br/>{credential, conversation_id}"| ControlPlane
     ControlPlane -->|"resolve credential to user<br/>record violation"| DB
-    ControlPlane -.->|"warning email (n/5)<br/>or ban at threshold"| Webapp
+    ControlPlane -.->|"warning email near the limit<br/>or ban at threshold"| Webapp
 ```
 
 The router forwards the user's own credential, so the control plane can verify who the user is (JWT signature or API key lookup) without trusting the sidecar. Message content is sent only to the attested model enclaves (both the first pass and second pass model); the report to the control plane carries neither content, nor the violation categories, nor either model's reasoning — only the binary fact that a violation occurred. The report body sent to the Tinfoil control plane is defined by the two-field `Violation` struct in `controlplane.go` (credential, conversation id) and serialized directly from it, so nothing else can appear on the wire.
@@ -46,7 +46,7 @@ The router forwards the user's own credential, so the control plane can verify w
 
 4. **Review.** Every flag is second-guessed. The transcript goes to `SAFEGUARD_REVIEW_MODEL` (also attested) with a system prompt that states the judge's categories and reason, then the same policy, and asks it to independently decide whether the assistant actually crossed a line. It answers in the same schema, and its verdict is final: if it says no violation, the conversation is dropped.
 
-5. **Report.** A confirmed violation is `POST`ed to `{CONTROL_PLANE_URL}/api/internal/safeguards/violations` as `{credential, conversation_id}` — nothing else. The request is retried a few times on failure and then abandoned. The control plane resolves the credential to a user, records the violation, and uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice.
+5. **Report.** A confirmed violation is `POST`ed to `{CONTROL_PLANE_URL}/api/internal/safeguards/violations` as `{credential, conversation_id}` — nothing else. The request is retried a few times on failure and then abandoned. The control plane resolves the credential to a user, records the violation with its date, and uses `conversation_id` (when the client supplied one) to avoid counting the same conversation twice. Enforcement is entirely the control plane's decision: flags count toward a ban only within a rolling window, the user is emailed once they are close to the limit, and the account is suspended when it is reached. The sidecar neither knows nor needs to know any of those thresholds.
 
 The sidecar holds no state beyond the queue. If a model call fails or times out, the conversation is silently dropped; the router will submit it again on the next turn. Neither message content, nor the violation categories, nor the models' reasoning leaves the enclave or is logged.
 
