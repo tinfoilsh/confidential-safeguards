@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -130,6 +131,7 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 	defer cancel()
 	verdict, err := s.classifier.Classify(classifyCtx, conv.Transcript)
 	if err != nil {
+		slog.Warn("classification failed; conversation dropped", "error", err)
 		return
 	}
 	if !verdict.Violation {
@@ -140,6 +142,7 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 	defer cancelReview()
 	review, err := s.reviewer.Review(reviewCtx, conv.Transcript, verdict)
 	if err != nil {
+		slog.Warn("review failed; flagged conversation dropped", "error", err)
 		return
 	}
 	if !review.Violation {
@@ -148,7 +151,13 @@ func (s *Service) process(ctx context.Context, conv *Conversation) {
 
 	violation := Violation{Credential: conv.Credential, ConversationID: conv.ConversationID}
 	for attempt := 1; ; attempt++ {
-		if err := s.reporter.ReportViolation(ctx, violation); err == nil || attempt == reportAttempts {
+		err := s.reporter.ReportViolation(ctx, violation)
+		if err == nil {
+			slog.Warn("violation reported")
+			return
+		}
+		if attempt == reportAttempts {
+			slog.Error("failed to report violation; giving up", "error", err)
 			return
 		}
 		s.sleep(ctx, reportRetryDelay)
