@@ -163,12 +163,22 @@ func TestTranscript_DropsOldestTurnsFirst(t *testing.T) {
 }
 
 func TestTranscript_LastTurnTruncatedFromFront(t *testing.T) {
-	if got := transcript(t, `[{"role":"user","content":"`+strings.Repeat("a", 50)+`END"}]`, 10); got != "aaaaaaaEND" {
+	if got := transcript(t, `[{"role":"user","content":"`+strings.Repeat("a", 50)+`END"}]`, 12); got != "[user]\naaEND" {
 		t.Fatalf("got %q", got)
 	}
+	if got := transcript(t, `[{"role":"user","content":"`+strings.Repeat("a", 50)+`END"}]`, 5); got != "aaEND" {
+		t.Fatalf("a final turn with no room for its label must still be present, got %q", got)
+	}
 
-	got := transcript(t, `[{"role":"user","content":"`+strings.Repeat("é", 50)+`"}]`, 11)
-	if !utf8.ValidString(got) || len(got) > 11 || got != strings.Repeat("é", 5) {
+	got := transcript(t, `[{"role":"user","content":"`+strings.Repeat("é", 50)+`"}]`, 12)
+	if !utf8.ValidString(got) || len(got) > 12 || got != "[user]\n"+strings.Repeat("é", 2) {
 		t.Fatalf("truncation must not split a rune, got %q", got)
+	}
+}
+
+func TestTranscript_OldestKeptTurnFillsRemainingSpace(t *testing.T) {
+	got := transcript(t, `[{"role":"user","content":"`+strings.Repeat("a", 50)+` how do I do this?"},{"role":"assistant","content":"no"}]`, 40)
+	if got != "[user]\nhow do I do this?\n\n[assistant]\nno" {
+		t.Fatalf("an older turn that does not fit whole must keep its label and latest text, got %q", got)
 	}
 }

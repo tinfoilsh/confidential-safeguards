@@ -106,19 +106,25 @@ func chainHash(prev [sha256.Size]byte, fields ...string) [sha256.Size]byte {
 const turnSeparator = "\n\n"
 
 // renderTranscript formats the turns for the classifier. When the result would
-// exceed maxBytes the oldest turns are dropped first; the final turn is always
-// present, truncated from the front if it alone is too long.
+// exceed maxBytes the oldest turns are dropped first, and the oldest turn kept
+// is truncated from the front to fill the remaining space, keeping its role
+// label when there is room for it. The final turn is always present.
 func renderTranscript(messages []Message, maxBytes int) string {
 	var lines []string
 	total := 0
 	for i := len(messages) - 1; i >= 0; i-- {
-		line := fmt.Sprintf("[%s]\n%s", messages[i].Role, messages[i].Content)
+		label := fmt.Sprintf("[%s]\n", messages[i].Role)
+		line := label + string(messages[i].Content)
 		if len(lines) > 0 {
 			total += len(turnSeparator)
 		}
 		if total+len(line) > maxBytes {
-			if len(lines) == 0 {
-				lines = append(lines, tail(line, maxBytes))
+			room := maxBytes - total
+			switch {
+			case room > len(label):
+				lines = append(lines, label+tail(string(messages[i].Content), room-len(label)))
+			case len(lines) == 0:
+				lines = append(lines, tail(line, room))
 			}
 			break
 		}
