@@ -25,7 +25,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		SafeguardPolicy:        "p",
 		SafeguardTimeout:       5 * time.Minute,
 		SafeguardReviewTimeout: 10 * time.Minute,
-		MaxTranscriptBytes:     320_000,
+		MaxTranscriptBytes:     240_000,
+		TranscriptOverlapBytes: 40_000,
 		MaxRequestBytes:        4 << 20,
 		QueueTTL:               time.Hour,
 		QueueMaxSize:           10_000,
@@ -69,6 +70,7 @@ func TestLoadConfig_RejectsInvalidValues(t *testing.T) {
 		"WORKERS":                  "-1",
 		"MAX_REQUEST_BYTES":        "big",
 		"MAX_TRANSCRIPT_BYTES":     "0",
+		"TRANSCRIPT_OVERLAP_BYTES": "0",
 		"SAFEGUARD_TIMEOUT":        "0s",
 		"SAFEGUARD_REVIEW_TIMEOUT": "-1m",
 	} {
@@ -77,5 +79,14 @@ func TestLoadConfig_RejectsInvalidValues(t *testing.T) {
 			t.Errorf("%s=%s: expected error", key, value)
 		}
 		t.Setenv(key, "")
+	}
+}
+
+func TestLoadConfig_OverlapMustBeSmallerThanTranscript(t *testing.T) {
+	setRequired(t)
+	t.Setenv("MAX_TRANSCRIPT_BYTES", "1000")
+	t.Setenv("TRANSCRIPT_OVERLAP_BYTES", "1000")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected error when the overlap is as large as the transcript")
 	}
 }

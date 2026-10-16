@@ -2,12 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
 
-const testMaxTranscript = 1 << 20
+const (
+	testMaxTranscript     = 1 << 20
+	testTranscriptOverlap = 1 << 10
+)
 
 const (
 	turnOne = `{"role":"system","content":"be helpful"},{"role":"user","content":"hello"},{"role":"assistant","content":"Hello, how can I help you?"}`
@@ -25,7 +30,7 @@ func parseMessages(t *testing.T, messages string) []Message {
 
 func mustConversation(t *testing.T, credential string, messages string) *Conversation {
 	t.Helper()
-	conv, err := NewConversation(credential, "", parseMessages(t, messages), testMaxTranscript)
+	conv, err := NewConversation(credential, "", parseMessages(t, messages), testMaxTranscript, testTranscriptOverlap)
 	if err != nil {
 		t.Fatalf("NewConversation: %v", err)
 	}
@@ -50,7 +55,7 @@ func TestNewConversation_PrefixChainExtends(t *testing.T) {
 func TestNewConversation_SaltedByCredentialAndConversation(t *testing.T) {
 	a := mustConversation(t, "u1", "["+turnOne+"]")
 	b := mustConversation(t, "u2", "["+turnOne+"]")
-	c, err := NewConversation("u1", "chat-2", parseMessages(t, "["+turnOne+"]"), testMaxTranscript)
+	c, err := NewConversation("u1", "chat-2", parseMessages(t, "["+turnOne+"]"), testMaxTranscript, testTranscriptOverlap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +135,7 @@ func TestNewConversation_Rejects(t *testing.T) {
 		"empty":        {},
 		"missing role": {{Content: "x"}},
 	} {
-		if _, err := NewConversation("u1", "", messages, testMaxTranscript); err == nil {
+		if _, err := NewConversation("u1", "", messages, testMaxTranscript, testTranscriptOverlap); err == nil {
 			t.Errorf("%s: expected error", name)
 		}
 	}
@@ -138,11 +143,22 @@ func TestNewConversation_Rejects(t *testing.T) {
 
 func transcript(t *testing.T, messages string, maxBytes int) string {
 	t.Helper()
-	conv, err := NewConversation("u1", "", parseMessages(t, messages), maxBytes)
+	return renderTranscript(parseMessages(t, messages), maxBytes)
+}
+
+func windowedTranscript(t *testing.T, messages []Message, maxBytes, overlapBytes int) string {
+	t.Helper()
+	conv, err := NewConversation("u1", "", messages, maxBytes, overlapBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return conv.Transcript
+}
+
+// numberedTurn renders to exactly 98 bytes: a 7-byte "[user]\n" label and 91
+// bytes of content. With the 2-byte separator, turn i starts at byte 100*i.
+func numberedTurn(i int) Message {
+	return Message{Role: "user", Content: Content(fmt.Sprintf("%02d", i) + strings.Repeat("x", 89))}
 }
 
 func TestTranscript_DropsOldestTurnsFirst(t *testing.T) {
@@ -180,5 +196,54 @@ func TestTranscript_OldestKeptTurnFillsRemainingSpace(t *testing.T) {
 	got := transcript(t, `[{"role":"user","content":"`+strings.Repeat("a", 50)+` how do I do this?"},{"role":"assistant","content":"no"}]`, 40)
 	if got != "[user]\nhow do I do this?\n\n[assistant]\nno" {
 		t.Fatalf("an older turn that does not fit whole must keep its label and latest text, got %q", got)
+	}
+}
+
+func TestTranscript_LongChatReadsFixedWindows(t *testing.T) {
+	// A 500-byte window overlapping the next by 100 starts every 400 bytes,
+	// at turns 0, 4, 8, ...
+	const maxBytes, overlap = 500, 100
+	var messages []Message
+	for n := 1; n <= 10; n++ {
+		messages = append(messages, numberedTurn(n-1))
+		full := renderTranscript(messages, testMaxTranscript)
+		start := 0
+		switch {
+		case n >= 10:
+			start = 800
+		case n >= 6:
+			start = 400
+		}
+		if got := windowedTranscript(t, messages, maxBytes, overlap); got != full[start:] {
+			t.Fatalf("%d turns (%d bytes): transcript should start at byte %d, got %q", n, len(full), start, got)
+		}
+	}
+}
+
+func TestTranscript_FinalTurnStartingBeforeWindowReadsLastBytes(t *testing.T) {
+	const maxBytes, overlap = 500, 100
+	messages := []Message{numberedTurn(0), numberedTurn(1), numberedTurn(2), {Role: "user", Content: Content(strings.Repeat("y", 293))}}
+	full := renderTranscript(messages, testMaxTranscript)
+	// The 600-byte chat's window starts at byte 400, but the final turn starts
+	// at byte 300, so the last 500 bytes are read: turns 1 to 3.
+	if got := windowedTranscript(t, messages, maxBytes, overlap); got != full[100:] {
+		t.Fatalf("got %q, want %q", got, full[100:])
+	}
+}
+
+func TestTranscript_WindowStartingMidTurnCutsItAtTheSameByte(t *testing.T) {
+	// A 450-byte window overlapping the next by 100 starts its second window
+	// at byte 350, partway into turn 3.
+	const maxBytes, overlap = 450, 100
+	earlier := []Message{numberedTurn(0), numberedTurn(1), numberedTurn(2), numberedTurn(3), numberedTurn(4)}
+	later := append(slices.Clone(earlier), numberedTurn(5))
+
+	first := windowedTranscript(t, earlier, maxBytes, overlap)
+	second := windowedTranscript(t, later, maxBytes, overlap)
+	if !strings.HasPrefix(first, "[user]\nxxx") {
+		t.Fatalf("the cut turn should keep its label, got %q", first)
+	}
+	if !strings.HasPrefix(second, first) {
+		t.Fatalf("the next turn should extend the same window:\n%q\n%q", first, second)
 	}
 }

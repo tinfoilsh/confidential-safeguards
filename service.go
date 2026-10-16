@@ -43,10 +43,11 @@ type Service struct {
 	reviewer   Reviewer
 	reporter   Reporter
 
-	maxRequestBytes    int
-	maxTranscriptBytes int
-	classifyTimeout    time.Duration
-	reviewTimeout      time.Duration
+	maxRequestBytes        int
+	maxTranscriptBytes     int
+	transcriptOverlapBytes int
+	classifyTimeout        time.Duration
+	reviewTimeout          time.Duration
 
 	// sleep waits for d or until ctx is done; tests swap it out.
 	sleep func(ctx context.Context, d time.Duration)
@@ -54,15 +55,16 @@ type Service struct {
 
 func NewService(cfg *Config, classifier Classifier, reviewer Reviewer, reporter Reporter) *Service {
 	return &Service{
-		queue:              NewQueue(cfg.QueueTTL, cfg.QueueMaxSize),
-		classifier:         classifier,
-		reviewer:           reviewer,
-		reporter:           reporter,
-		maxRequestBytes:    cfg.MaxRequestBytes,
-		maxTranscriptBytes: cfg.MaxTranscriptBytes,
-		classifyTimeout:    cfg.SafeguardTimeout,
-		reviewTimeout:      cfg.SafeguardReviewTimeout,
-		sleep:              sleep,
+		queue:                  NewQueue(cfg.QueueTTL, cfg.QueueMaxSize),
+		classifier:             classifier,
+		reviewer:               reviewer,
+		reporter:               reporter,
+		maxRequestBytes:        cfg.MaxRequestBytes,
+		maxTranscriptBytes:     cfg.MaxTranscriptBytes,
+		transcriptOverlapBytes: cfg.TranscriptOverlapBytes,
+		classifyTimeout:        cfg.SafeguardTimeout,
+		reviewTimeout:          cfg.SafeguardReviewTimeout,
+		sleep:                  sleep,
 	}
 }
 
@@ -102,7 +104,7 @@ func (s *Service) HandleIngest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "credential is required", http.StatusBadRequest)
 		return
 	}
-	conv, err := NewConversation(req.Credential, req.ConversationID, req.Messages, s.maxTranscriptBytes)
+	conv, err := NewConversation(req.Credential, req.ConversationID, req.Messages, s.maxTranscriptBytes, s.transcriptOverlapBytes)
 	if err != nil {
 		// Static message: never echo anything conversation-derived back out.
 		http.Error(w, "invalid messages", http.StatusBadRequest)
