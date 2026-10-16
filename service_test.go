@@ -173,7 +173,7 @@ func TestHandleIngest_TranscriptIsCapped(t *testing.T) {
 func TestProcess_ReportsViolation(t *testing.T) {
 	reporter := &stubReporter{}
 	svc := NewService(testConfig(), &stubClassifier{verdict: Verdict{Violation: true, Categories: []string{"cbrn"}}}, confirmingReviewer(), reporter)
-	conv, err := NewConversation("cred-1", "chat-42", parseMessages(t, "["+turnTwo+"]"), testMaxTranscript)
+	conv, err := NewConversation("cred-1", "chat-42", parseMessages(t, "["+turnTwo+"]"), testMaxTranscript, testTranscriptOverlap)
 	if err != nil {
 		t.Fatal(err)
 	}

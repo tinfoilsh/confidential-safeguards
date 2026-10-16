@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -17,6 +18,7 @@ type Config struct {
 	SafeguardTimeout       time.Duration
 	SafeguardReviewTimeout time.Duration
 	MaxTranscriptBytes     int
+	TranscriptOverlapBytes int
 
 	MaxRequestBytes int
 
@@ -48,8 +50,14 @@ func LoadConfig() (*Config, error) {
 	if cfg.SafeguardReviewTimeout, err = positiveEnv("SAFEGUARD_REVIEW_TIMEOUT", 10*time.Minute, time.ParseDuration); err != nil {
 		return nil, err
 	}
-	if cfg.MaxTranscriptBytes, err = positiveEnv("MAX_TRANSCRIPT_BYTES", 320_000, strconv.Atoi); err != nil {
+	if cfg.MaxTranscriptBytes, err = positiveEnv("MAX_TRANSCRIPT_BYTES", 240_000, strconv.Atoi); err != nil {
 		return nil, err
+	}
+	if cfg.TranscriptOverlapBytes, err = positiveEnv("TRANSCRIPT_OVERLAP_BYTES", 40_000, strconv.Atoi); err != nil {
+		return nil, err
+	}
+	if cfg.TranscriptOverlapBytes >= cfg.MaxTranscriptBytes {
+		return nil, errors.New("TRANSCRIPT_OVERLAP_BYTES must be smaller than MAX_TRANSCRIPT_BYTES")
 	}
 	if cfg.MaxRequestBytes, err = positiveEnv("MAX_REQUEST_BYTES", 4<<20, strconv.Atoi); err != nil {
 		return nil, err
