@@ -50,4 +50,9 @@ For local development, copy `.env.example` to `.env`, fill it in, and run `go ru
 
 ## Reporting Vulnerabilities
 
-Please report security vulnerabilities to security@tinfoil.sh.
+Please report security vulnerabilities by either:
+
+- Emailing [security@tinfoil.sh](mailto:security@tinfoil.sh)
+- Opening an issue on GitHub on this repository
+
+We aim to respond to (legitimate) security reports within 24 hours.
