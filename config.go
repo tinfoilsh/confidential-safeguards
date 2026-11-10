@@ -33,7 +33,7 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{
 		ListenAddr:           envOr("LISTEN_ADDR", ":8090"),
 		SafeguardModel:       envOr("SAFEGUARD_MODEL", "gpt-oss-safeguard-120b"),
-		SafeguardReviewModel: envOr("SAFEGUARD_REVIEW_MODEL", "kimi-k3"),
+		SafeguardReviewModel: envOr("SAFEGUARD_REVIEW_MODEL", "kimi-k3-1-pro"),
 		ControlPlaneURL:      envOr("CONTROL_PLANE_URL", "https://api.tinfoil.sh"),
 	}
 

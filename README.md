@@ -4,7 +4,7 @@ Confidential Safeguards checks conversations on Tinfoil's model router and chat 
 
 ## What is sent where
 
-- **Conversations go only to attested models.** Each conversation goes to a classifier model (`gpt-oss-safeguard-120b`) in its own attested enclave. If it flags a violation, an independent reviewer model (`kimi-k3`, also attested) decides, and its verdict is final.
+- **Conversations go only to attested models.** Each conversation goes to a classifier model (`gpt-oss-safeguard-120b`) in its own attested enclave. If it flags a violation, an independent reviewer model (`kimi-k3-1-pro`, also attested) decides, and its verdict is final.
 - **The control plane learns only that a confirmed violation occurred and whose it is.** The report holds the user's own credential and a conversation id, never the messages, the rule broken, or the models' reasoning.
 - **Nothing is logged.** No content, categories, or model reasoning.
 - **The setup is auditable.** The image, policy text, and settings are declared in the enclave configuration, so attestation covers them.
