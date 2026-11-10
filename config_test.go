@@ -21,7 +21,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		ListenAddr:             ":8090",
 		TinfoilAPIKey:          "k",
 		SafeguardModel:         "gpt-oss-safeguard-120b",
-		SafeguardReviewModel:   "kimi-k3",
+		SafeguardReviewModel:   "kimi-k3-1-pro",
 		SafeguardPolicy:        "p",
 		SafeguardTimeout:       5 * time.Minute,
 		SafeguardReviewTimeout: 10 * time.Minute,
