@@ -27,9 +27,9 @@ func main() {
 		fatal("invalid configuration", err)
 	}
 
-	client, err := tinfoil.NewClientWithOptions(
-		tinfoil.WithTransport(tinfoil.TransportTLS),
-		tinfoil.WithOpenAIOptions(option.WithAPIKey(cfg.TinfoilAPIKey)),
+	client, err := tinfoil.NewRouterOpenAIClient(context.Background(),
+		&tinfoil.RouterOptions{TransportMode: tinfoil.TransportModeTLS},
+		option.WithAPIKey(cfg.TinfoilAPIKey),
 	)
 	if err != nil {
 		fatal("failed to create Tinfoil client", err)
